@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>AxSoft — Sistema de gestión</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo"><img src="/img/logo-axsoft.png" alt="AxSoft"></div>
+    <h2>Bienvenido</h2>
+    <p>Ingresá tus credenciales para continuar</p>
+    <input type="text" id="login-user" placeholder="Usuario" autocomplete="username">
+    <input type="password" id="login-pass" placeholder="Contraseña" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter') doLogin()">
+    <button class="login-btn" onclick="doLogin()">Ingresar</button>
+    <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="/img/logo-axsoft.png" alt="AxSoft">
+    <div>
+      <div class="sidebar-title">AxSoft</div>
+      <div class="sidebar-subtitle">Sistema de gestión</div>
+    </div>
+  </div>
+  <ul class="nav-links">
+    <li><a href="#" class="nav-link active" data-page="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      Panel
+    </a></li>
+
+    <div class="nav-section-label">Cuentas</div>
+    <li><a href="#" class="nav-link" data-page="motos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h8M12 17V7l5 3"/><path d="M9 7h3"/></svg>
+      Cuentas Motos
+    </a></li>
+    <li><a href="#" class="nav-link" data-page="sistemas">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      Cuentas Sistemas
+    </a></li>
+
+    <div class="nav-section-label">Comercial</div>
+    <li><a href="#" class="nav-link" data-page="presupuestos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Presupuestos
+    </a></li>
+
+    <div class="nav-section-label">Personal</div>
+    <li><a href="#" class="nav-link" data-page="bitacora">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      Bitácora
+    </a></li>
+  </ul>
+  <div class="sidebar-bottom">
+    <button class="logout-btn" onclick="doLogout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Salir
+    </button>
+  </div>
+</nav>
+
+<div class="main-wrap">
+  <header class="topbar">
+    <button class="hamburger" onclick="toggleSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <span class="topbar-title" id="topbar-title">Panel general</span>
+    <span class="topbar-badge" id="topbar-badge" style="display:none"></span>
+  </header>
+
+  <!-- ══ DASHBOARD ═══════════════════════════════════════════════ -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-header"><h1>Panel general</h1></div>
+    <div class="stats-grid" id="dash-stats"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex-wrap:wrap">
+      <div>
+        <div class="section-title">🏍 Motos activas</div>
+        <div class="clientes-list" id="dash-motos"></div>
+      </div>
+      <div>
+        <div class="section-title">💻 Sistemas activos</div>
+        <div class="clientes-list" id="dash-sistemas"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MOTOS ════════════════════════════════════════════════════ -->
+  <div class="page" id="page-motos">
+
+    <!-- LISTA -->
+    <div id="vista-lista-motos">
+      <div class="page-header">
+        <h1>Cuentas Motos</h1>
+        <button class="btn-primary" onclick="abrirNuevoMoto()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nueva cuenta
+        </button>
+      </div>
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-motos" placeholder="Buscar por nombre o moto..." oninput="filtrarMotos()">
+      </div>
+      <div class="clientes-list" id="lista-motos"></div>
+    </div>
+
+    <!-- CUENTA DETALLE -->
+    <div id="vista-cuenta-motos" style="display:none">
+      <div class="page-header">
+        <button class="btn-back" onclick="volverListaMotos()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="15" height="15"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver
+        </button>
+        <div class="cuenta-header-info">
+          <h1 id="moto-cuenta-nombre">—</h1>
+          <span class="cuenta-sub" id="moto-cuenta-sub"></span>
+        </div>
+        <button class="btn-secondary btn-sm" onclick="editarMotoActual()">Editar</button>
+        <button class="btn-primary" onclick="abrirNuevoMovMoto()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nuevo movimiento
+        </button>
+      </div>
+      <div class="cuenta-resumen" id="moto-cuenta-resumen"></div>
+      <div class="section-title">Historial de movimientos</div>
+      <div class="table-wrap">
+        <table class="mov-table">
+          <thead><tr><th>Fecha</th><th>Estado</th><th>Saldo ant.</th><th>Interés</th><th>Abono</th><th>Saldo nuevo</th><th>Recibo</th><th></th></tr></thead>
+          <tbody id="moto-mov-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SISTEMAS ═════════════════════════════════════════════════ -->
+  <div class="page" id="page-sistemas">
+
+    <!-- LISTA -->
+    <div id="vista-lista-sis">
+      <div class="page-header">
+        <h1>Cuentas Sistemas</h1>
+        <button class="btn-primary azul" onclick="abrirNuevoSistema()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nuevo cliente
+        </button>
+      </div>
+      <div class="search-bar azul">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-sistemas" placeholder="Buscar por nombre, sistema o rubro..." oninput="filtrarSistemas()">
+      </div>
+      <div class="clientes-list" id="lista-sistemas"></div>
+    </div>
+
+    <!-- CUENTA DETALLE -->
+    <div id="vista-cuenta-sis" style="display:none">
+      <div class="page-header">
+        <button class="btn-back" onclick="volverListaSistemas()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="15" height="15"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver
+        </button>
+        <div class="cuenta-header-info">
+          <h1 id="sis-cuenta-nombre">—</h1>
+          <span class="cuenta-sub" id="sis-cuenta-sub"></span>
+        </div>
+        <button class="btn-secondary btn-sm" onclick="editarSisActual()">Editar</button>
+        <button class="btn-primary azul" onclick="abrirNuevoPagoSis()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Registrar pago
+        </button>
+      </div>
+      <div class="cuenta-resumen" id="sis-cuenta-resumen"></div>
+      <div class="section-title">Historial de pagos</div>
+      <div class="table-wrap">
+        <table class="mov-table">
+          <thead><tr><th>Fecha</th><th>Monto</th><th>Concepto</th><th>Recibo</th><th></th></tr></thead>
+          <tbody id="sis-pagos-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PRESUPUESTOS ══════════════════════════════════════════════ -->
+  <div class="page" id="page-presupuestos">
+    <div class="page-header">
+      <h1>Presupuestos</h1>
+      <button class="btn-primary verde" onclick="abrirNuevoPresupuesto()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nuevo presupuesto
+      </button>
+    </div>
+    <div id="pres-lista"></div>
+  </div>
+
+  <!-- ══ BITÁCORA ══════════════════════════════════════════════════ -->
+  <div class="page" id="page-bitacora">
+    <div class="page-header">
+      <h1>Bitácora</h1>
+      <button class="btn-primary" style="background:#6d28d9;box-shadow:0 2px 8px rgba(109,40,217,.25)" onclick="abrirNuevaBitaCat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nueva categoría
+      </button>
+    </div>
+    <div class="bita-grid">
+      <div class="bita-sidebar">
+        <div id="bita-cats"></div>
+      </div>
+      <div class="bita-editor" id="bita-editor">
+        <div class="bita-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <span>Seleccioná o creá una categoría</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main-wrap -->
+
+<!-- ══ MODALES ═══════════════════════════════════════════════════ -->
+
+<!-- Modal: Nuevo movimiento Moto -->
+<div class="modal-overlay" id="modal-mov-moto" onclick="if(event.target===this)cerrarModal('modal-mov-moto')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>🏍 Nuevo movimiento</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-mov-moto')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="pago-info" id="mm-info" style="grid-template-columns:1fr 1fr;margin-bottom:1.25rem"></div>
+      <input type="hidden" id="mm-estado" value="abono">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem">
+        <button id="btn-mm-abono"   class="btn-estado activo" onclick="seleccionarEstadoMoto('abono')"><span style="font-size:1.3rem">✅</span><span>Abonó</span></button>
+        <button id="btn-mm-noabono" class="btn-estado"        onclick="seleccionarEstadoMoto('no-abono')"><span style="font-size:1.3rem">❌</span><span>No abonó</span></button>
+      </div>
+      <div id="mm-seccion-pago">
+        <div class="form-group" style="margin-bottom:1rem">
+          <label>Monto abonado ($)</label>
+          <input type="text" id="mm-pago" placeholder="0" inputmode="numeric" oninput="fmtInput(this)">
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Fecha</label>
+          <input type="date" id="mm-fecha">
+        </div>
+        <div class="form-group">
+          <label>Notas (opcional)</label>
+          <input type="text" id="mm-notas" placeholder="Pagó en efectivo, etc.">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-mov-moto')">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarMovMoto()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nuevo/editar cliente Moto -->
+<div class="modal-overlay" id="modal-moto-cliente" onclick="if(event.target===this)cerrarModal('modal-moto-cliente')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-moto-titulo">Nueva cuenta moto</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-moto-cliente')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="fm-id">
+      <div class="form-grid">
+        <div class="form-group full"><label>Nombre y apellido *</label><input type="text" id="fm-nombre" placeholder="Juan García"></div>
+        <div class="form-group"><label>Teléfono</label><input type="text" id="fm-telefono" placeholder="3834 123456"></div>
+        <div class="form-group"><label>DNI</label><input type="text" id="fm-dni" placeholder="28.123.456"></div>
+        <div class="form-group full"><label>Moto / Vehículo</label><input type="text" id="fm-moto" placeholder="Honda Wave 110 — AB123CD"></div>
+        <div class="form-separator"></div>
+        <div class="form-group full" id="grupo-fm-saldo">
+          <label>Saldo a financiar ($) *</label>
+          <input type="text" id="fm-saldo" placeholder="500.000" inputmode="numeric" oninput="fmtInput(this)">
+        </div>
+        <div class="form-group full">
+          <label>Modalidad de pago</label>
+          <select id="fm-modalidad" onchange="cambiarModalidadMoto()">
+            <option value="interes">Con interés mensual</option>
+            <option value="cuotas">Cuotas fijas en pesos</option>
+          </select>
+        </div>
+        <div id="grupo-fm-tasa" class="form-group full">
+          <label>Tasa mensual (%)</label>
+          <input type="number" id="fm-tasa" value="6" min="0" step="0.5">
+        </div>
+        <div id="grupo-fm-cuotas" style="display:none;grid-column:1/-1">
+          <div class="form-grid">
+            <div class="form-group"><label>Monto de la cuota ($)</label><input type="text" id="fm-cuota" placeholder="20.000" inputmode="numeric" oninput="fmtInput(this)"></div>
+            <div class="form-group"><label>Cantidad de cuotas</label><input type="number" id="fm-total-cuotas" placeholder="24" min="1" max="120"></div>
+          </div>
+        </div>
+        <div class="form-group full">
+          <label>Fecha de inicio</label>
+          <input type="date" id="fm-fecha-inicio">
+        </div>
+        <div class="form-group full">
+          <label>Observaciones</label>
+          <textarea id="fm-obs" placeholder="Ej: Financió $500.000 al 6% mensual. Entregó $100.000 de seña."></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-moto-cliente')">Cancelar</button>
+      <button class="btn-primary" onclick="guardarClienteMoto()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Pago Sistema -->
+<div class="modal-overlay" id="modal-pago-sis" onclick="if(event.target===this)cerrarModal('modal-pago-sis')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>💻 Registrar pago</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-pago-sis')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Fecha</label><input type="date" id="sp-fecha"></div>
+        <div class="form-group"><label>Monto ($)</label><input type="text" id="sp-monto" placeholder="0" inputmode="numeric" oninput="fmtInput(this)"></div>
+        <div class="form-group full"><label>Concepto (opcional)</label><input type="text" id="sp-concepto" placeholder="Cuota mensual — Mayo 2026"></div>
+        <div class="form-group full"><label>Notas (opcional)</label><input type="text" id="sp-notas" placeholder="Pagó en efectivo, etc."></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-pago-sis')">Cancelar</button>
+      <button class="btn-primary azul" onclick="confirmarPagoSis()">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nuevo/editar cliente Sistema -->
+<div class="modal-overlay" id="modal-sis-cliente" onclick="if(event.target===this)cerrarModal('modal-sis-cliente')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-sis-titulo">Nuevo cliente sistema</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-sis-cliente')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="fs-id">
+      <div class="form-grid">
+        <div class="form-group full"><label>Nombre / Empresa *</label><input type="text" id="fs-nombre" placeholder="Almacén Los Pinos"></div>
+        <div class="form-group"><label>Teléfono</label><input type="text" id="fs-telefono" placeholder="3834 123456"></div>
+        <div class="form-group"><label>Email</label><input type="text" id="fs-email" placeholder="cliente@mail.com"></div>
+        <div class="form-group full"><label>Sistema</label><input type="text" id="fs-sistema" placeholder="Sistema de ventas + stock"></div>
+        <div class="form-group"><label>Rubro</label><input type="text" id="fs-rubro" placeholder="Almacén, Farmacia..."></div>
+        <div class="form-group"><label>Cuota mensual ($)</label><input type="text" id="fs-cuota" placeholder="8.500" inputmode="numeric" oninput="fmtInput(this)"></div>
+        <div class="form-group"><label>Día de vencimiento</label><input type="number" id="fs-dia" value="10" min="1" max="31"></div>
+        <div class="form-group"><label>Fecha de alta</label><input type="date" id="fs-fecha-alta"></div>
+        <div class="form-group full"><label>Observaciones</label><textarea id="fs-obs" placeholder="Notas internas..."></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-sis-cliente')">Cancelar</button>
+      <button class="btn-primary azul" onclick="guardarClienteSis()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nuevo presupuesto -->
+<div class="modal-overlay" id="modal-nuevo-pres" onclick="if(event.target===this)cerrarModal('modal-nuevo-pres')">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h2>📄 Nuevo presupuesto</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-nuevo-pres')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>Empresa / Nombre del cliente *</label><input type="text" id="pr-nombre" placeholder="Almacén Los Pinos"></div>
+        <div class="form-group"><label>Contacto</label><input type="text" id="pr-contacto" placeholder="Juan Pérez"></div>
+        <div class="form-group"><label>Teléfono</label><input type="text" id="pr-tel" placeholder="3834-XXXXXX"></div>
+        <div class="form-group full"><label>Email</label><input type="text" id="pr-email" placeholder="cliente@mail.com"></div>
+      </div>
+      <div style="margin:1rem 0 .5rem;font-weight:700;font-size:.88rem;color:var(--negro)">Ítems</div>
+      <div style="display:grid;grid-template-columns:1fr 70px 100px 32px;gap:6px;margin-bottom:6px">
+        <span style="font-size:.75rem;color:var(--text-muted);padding:0 4px">Descripción</span>
+        <span style="font-size:.75rem;color:var(--text-muted);text-align:center">Cant.</span>
+        <span style="font-size:.75rem;color:var(--text-muted);text-align:right">Precio</span>
+        <span></span>
+      </div>
+      <div id="items-container"></div>
+      <button class="btn-sm btn-secondary" style="margin-top:.5rem" onclick="agregarItemPres()">+ Agregar ítem</button>
+      <div style="margin-top:.75rem;text-align:right;font-size:1rem;font-weight:800;color:var(--azul)" id="total-pres">Total: $ 0</div>
+      <div class="form-grid" style="margin-top:1rem">
+        <div class="form-group"><label>Validez</label><input type="text" id="pr-validez" value="30 días"></div>
+        <div class="form-group full"><label>Observaciones</label><textarea id="pr-notas" rows="2" placeholder="Condiciones especiales, garantía, etc."></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-nuevo-pres')">Cancelar</button>
+      <button class="btn-primary verde" onclick="guardarPresupuesto()">Guardar y descargar PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nueva categoría bitácora -->
+<div class="modal-overlay" id="modal-nueva-cat" onclick="if(event.target===this)cerrarModal('modal-nueva-cat')">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-header">
+      <h2>📁 Nueva categoría</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-nueva-cat')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="margin-bottom:1rem">
+        <label>Nombre *</label>
+        <input type="text" id="nb-nombre" placeholder="Ej: Q de Queso, VPS, Clientes..." onkeydown="if(event.key==='Enter')guardarNuevaBitaCat()">
+      </div>
+      <div class="form-group">
+        <label>Color</label>
+        <input type="color" id="nb-color" value="#2563eb" style="height:38px;padding:.3rem .5rem;cursor:pointer">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-nueva-cat')">Cancelar</button>
+      <button class="btn-primary" style="background:#6d28d9" onclick="guardarNuevaBitaCat()">Crear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Recibo manual Moto -->
+<div class="modal-overlay" id="modal-recibo-manual-moto" onclick="if(event.target===this)cerrarModal('modal-recibo-manual-moto')">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h2>✏️ Recibo manual</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-recibo-manual-moto')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="rm-mov-id">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Fecha del recibo</label>
+          <input type="text" id="rm-fecha" placeholder="28/05/2026">
+          <span class="form-hint">Podés escribir la que quieras.</span>
+        </div>
+        <div class="form-group">
+          <label>Abona la suma de</label>
+          <input type="text" id="rm-suma" placeholder="1.500">
+          <span class="form-hint">Solo el número, sin $</span>
+        </div>
+        <div class="form-group">
+          <label>Monto abonado (detalle)</label>
+          <input type="text" id="rm-monto" placeholder="1.500">
+          <span class="form-hint">Solo el número, sin $</span>
+        </div>
+        <div class="form-group full">
+          <label>En concepto de</label>
+          <textarea id="rm-concepto" rows="3" placeholder="Ej: Cuota 5 de 24 — Honda Wave 110"></textarea>
+          <span class="form-hint">Se precarga automáticamente, editalo si hace falta.</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-recibo-manual-moto')">Cancelar</button>
+      <button class="btn-primary" onclick="verReciboManualMoto()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Abrir PDF
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/auth.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
