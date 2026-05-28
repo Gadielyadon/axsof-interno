@@ -63,7 +63,7 @@ function navegarA(page) {
       a.classList.add('active');
       // Color activo según sección
       const colorClass = { motos:'motos', sistemas:'sistemas', presupuestos:'pres', bitacora:'bita' };
-      a.classList.add(colorClass[page] || '');
+      const cc = colorClass[page]; if (cc) a.classList.add(cc);
     }
   });
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -87,8 +87,17 @@ function navegarA(page) {
   if (page === 'bitacora')     cargarBitacora();
 }
 
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
-function cerrarSidebar()  { document.getElementById('sidebar').classList.remove('open'); }
+function toggleSidebar() {
+  const s = document.getElementById('sidebar');
+  const o = document.getElementById('sidebar-overlay');
+  s.classList.toggle('open');
+  if (o) o.classList.toggle('show', s.classList.contains('open'));
+}
+function cerrarSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  const o = document.getElementById('sidebar-overlay');
+  if (o) o.classList.remove('show');
+}
 
 // ═══ DASHBOARD ════════════════════════════════════════════════════
 async function cargarDashboard() {
