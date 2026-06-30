@@ -22,6 +22,94 @@ function fmtF(f) {
   return `${parseInt(d)} de ${meses[parseInt(m)-1]} de ${y}`;
 }
 
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function fwdQS(query) {
+  const keys = ['fecha', 'concepto'];
+  const parts = [];
+  keys.forEach(k => {
+    if (query[k] != null && query[k] !== '') parts.push(k + '=' + encodeURIComponent(query[k]));
+  });
+  return parts.length ? '&' + parts.join('&') : '';
+}
+
+// Página HTML con botón de descarga para el recibo de Sistemas (resuelve la descarga en celular).
+function htmlReciboSistemas(d) {
+  const fwd     = fwdQS(d.query);
+  const linkVer = `/api/sistemas/recibo/${d.pagoId}?pdf=1${fwd}`;
+  const linkDl  = `/api/sistemas/recibo/${d.pagoId}?pdf=1&dl=1${fwd}`;
+  const nombrePdf = `recibo-${d.numeroRecibo || ''}.pdf`;
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recibo N° ${esc(d.numeroRecibo)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+       background:#eef1f6;color:#1a1a1a;padding:16px;padding-bottom:96px;-webkit-text-size-adjust:100%}
+  .card{max-width:480px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;
+        box-shadow:0 6px 24px rgba(0,0,0,.10)}
+  .head{background:#1A2B5E;color:#fff;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .head img{height:50px;background:#fff;border-radius:8px;padding:5px}
+  .head .num{font-size:1.1rem;font-weight:800;text-align:right;line-height:1.2}
+  .head .num small{display:block;font-size:.72rem;font-weight:500;color:#A8C4E0;margin-top:3px}
+  .body{padding:20px}
+  .title{color:#1A2B5E;font-size:1.15rem;font-weight:800;text-align:center;letter-spacing:.04em;margin:4px 0 4px}
+  .uline{height:2px;width:140px;background:#2E86DE;margin:0 auto 18px}
+  .lbl{font-size:.66rem;letter-spacing:.09em;color:#9aa0a6;font-weight:600;margin-bottom:3px}
+  .val{font-size:.98rem;margin-bottom:14px}
+  .montbox{background:#F4F6FA;border-radius:10px;padding:18px;text-align:center;margin:8px 0}
+  .montbox .l{font-size:.72rem;color:#888;letter-spacing:.08em}
+  .montbox .m{color:#1A2B5E;font-size:2.1rem;font-weight:800;margin-top:4px}
+  .pagado{display:inline-block;background:#E1F5EE;color:#0F6E56;border:1px solid #0F6E56;border-radius:8px;
+          font-weight:800;padding:6px 16px;font-size:.95rem;margin:4px auto 0}
+  .foot{background:#f5f5f5;text-align:center;color:#9aa0a6;font-size:.72rem;padding:12px;line-height:1.5}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e5e5e5;
+       padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:10px;
+       max-width:480px;margin:0 auto}
+  .btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;
+       font-size:1rem;font-weight:700;border-radius:10px;padding:14px;border:0;cursor:pointer}
+  .btn-dl{background:#1A2B5E;color:#fff}
+  .btn-ver{background:#fff;color:#1A2B5E;border:1.5px solid #1A2B5E}
+  .hint{max-width:480px;margin:10px auto 0;text-align:center;color:#9aa0a6;font-size:.74rem;line-height:1.4}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <img src="/img/logo-axsoft.png" alt="Logo" onerror="this.style.display='none'">
+      <div class="num">RECIBO N° ${esc(d.numeroRecibo)}<small>Fecha: ${esc(d.fechaManual)}</small></div>
+    </div>
+    <div class="body">
+      <div class="title">COMPROBANTE DE PAGO</div>
+      <div class="uline"></div>
+      <div class="lbl">CLIENTE</div><div class="val">${esc(d.clienteNombre)}</div>
+      <div class="lbl">SISTEMA CONTRATADO</div><div class="val">${esc(d.sistema) || '—'}</div>
+      <div class="lbl">CONCEPTO</div><div class="val">${esc(d.concepto)}</div>
+      <div class="montbox">
+        <div class="l">TOTAL ABONADO</div>
+        <div class="m">${esc(d.montoStr)}</div>
+        <div class="pagado">✓ PAGADO</div>
+      </div>
+      ${d.notas ? `<div class="lbl" style="margin-top:6px">ACLARACIONES</div><div class="val">${esc(d.notas)}</div>` : ''}
+    </div>
+    <div class="foot">AxSoft Solutions — Soluciones Informáticas a medida<br>axsoftsoluciones.com.ar | info@axsoftsoluciones.com.ar</div>
+  </div>
+  <p class="hint">Tocá <b>Descargar recibo</b> para guardar el PDF en tu teléfono.</p>
+  <div class="bar">
+    <a class="btn btn-ver" href="${linkVer}" target="_blank" rel="noopener">👁️ Ver PDF</a>
+    <a class="btn btn-dl" href="${linkDl}" download="${esc(nombrePdf)}">⬇️ Descargar recibo</a>
+  </div>
+</body>
+</html>`;
+}
+
 // ── CLIENTES ──────────────────────────────────────────────────────
 
 router.get('/clientes', (req, res) => {
@@ -117,13 +205,30 @@ router.get('/recibo/:pagoId', (req, res) => {
   const concepto    = req.query.concepto ? decodeURIComponent(req.query.concepto) : pago.concepto;
   const fechaManual = req.query.fecha    ? decodeURIComponent(req.query.fecha)    : fmtF(pago.fecha);
 
+  // Si NO se pide el PDF explícito, devolvemos la página con el botón de descarga.
+  const wantPdf = req.query.pdf === '1' || req.query.pdf === 'true';
+  if (!wantPdf) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(htmlReciboSistemas({
+      pagoId: pago.id,
+      numeroRecibo: pago.numero_recibo,
+      fechaManual, concepto,
+      montoStr: fmtM(pago.monto),
+      clienteNombre: cliente.nombre,
+      sistema: cliente.sistema,
+      notas: pago.notas,
+      query: req.query
+    }));
+  }
+  const forzarDescarga = req.query.dl === '1' || req.query.dl === 'true';
+
   const doc    = new PDFDocument({ size: 'A4', margin: 0 });
   const W      = doc.page.width;
   const chunks = [];
   doc.on('data', c => chunks.push(c));
   doc.on('end', () => {
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="recibo-${pago.numero_recibo}.pdf"`);
+    res.setHeader('Content-Disposition', `${forzarDescarga ? 'attachment' : 'inline'}; filename="recibo-${pago.numero_recibo}.pdf"`);
     res.send(Buffer.concat(chunks));
   });
 
