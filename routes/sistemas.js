@@ -74,7 +74,8 @@ function htmlReciboSistemas(d) {
        padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:10px;
        max-width:480px;margin:0 auto}
   .btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;
-       font-size:1rem;font-weight:700;border-radius:10px;padding:14px;border:0;cursor:pointer}
+       font-size:1rem;font-weight:700;border-radius:10px;padding:14px;border:0;cursor:pointer;font-family:inherit}
+  .btn:disabled{opacity:.7}
   .btn-dl{background:#1A2B5E;color:#fff}
   .btn-ver{background:#fff;color:#1A2B5E;border:1.5px solid #1A2B5E}
   .hint{max-width:480px;margin:10px auto 0;text-align:center;color:#9aa0a6;font-size:.74rem;line-height:1.4}
@@ -101,11 +102,39 @@ function htmlReciboSistemas(d) {
     </div>
     <div class="foot">AxSoft Solutions — Soluciones Informáticas a medida<br>axsoftsoluciones.com.ar | info@axsoftsoluciones.com.ar</div>
   </div>
-  <p class="hint">Tocá <b>Descargar recibo</b> para guardar el PDF en tu teléfono.</p>
+  <p class="hint" id="hint">Tocá <b>Descargar recibo</b> y elegí <b>Guardar en Archivos</b> o <b>Guardar imagen</b>.</p>
   <div class="bar">
-    <a class="btn btn-ver" href="${linkVer}" target="_blank" rel="noopener">👁️ Ver PDF</a>
-    <a class="btn btn-dl" href="${linkDl}" download="${esc(nombrePdf)}">⬇️ Descargar recibo</a>
+    <a class="btn btn-ver" href="${linkVer}" target="_blank" rel="noopener">👁️ Ver</a>
+    <button class="btn btn-dl" id="btnDl" onclick="descargarRecibo(this)">⬇️ Descargar recibo</button>
   </div>
+  <script>
+    var PDF_URL  = ${JSON.stringify(linkDl)};
+    var PDF_NAME = ${JSON.stringify(nombrePdf)};
+    async function descargarRecibo(btn){
+      var txt = btn.innerHTML;
+      btn.innerHTML = '⏳ Generando…'; btn.disabled = true;
+      try{
+        var resp = await fetch(PDF_URL);
+        if(!resp.ok) throw new Error('HTTP ' + resp.status);
+        var blob = await resp.blob();
+        var file = new File([blob], PDF_NAME, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file], title: 'Recibo' }); }
+          catch(e){ if (e && e.name === 'AbortError') {/* canceló */} else { throw e; } }
+        } else {
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = PDF_NAME;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+        }
+      } catch(err){
+        window.open(PDF_URL, '_blank');
+      } finally {
+        btn.innerHTML = txt; btn.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>`;
 }
