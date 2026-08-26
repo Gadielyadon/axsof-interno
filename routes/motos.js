@@ -166,6 +166,7 @@ router.get('/clientes', (req, res) => {
   `);
   clientes.forEach(c => {
     if (c.saldo_actual === null || c.saldo_actual === undefined) c.saldo_actual = c.saldo_inicial;
+    c.cuotas_atrasadas = db.cuotasAtrasadasMoto(c);
   });
   res.json(clientes);
 });
@@ -174,6 +175,7 @@ router.get('/clientes/:id', (req, res) => {
   const c = db.get('SELECT * FROM motos_clientes WHERE id=?', [req.params.id]);
   if (!c) return res.status(404).json({ error: 'No encontrado' });
   c.saldo_actual = db.saldoActualMoto(c.id);
+  c.cuotas_atrasadas = db.cuotasAtrasadasMoto(c);
   res.json(c);
 });
 
@@ -230,27 +232,36 @@ router.post('/clientes/:id/movimientos', (req, res) => {
   const cliente   = db.get('SELECT * FROM motos_clientes WHERE id=?', [clienteId]);
   if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  const { fecha, pago, abono, notas } = req.body;
-  const saldoAnt = db.saldoActualMoto(clienteId);
-  const esAbono  = abono ? 1 : 0;
-  const interes  = (esAbono && cliente.modalidad === 'interes')
-    ? Math.round(saldoAnt * (cliente.tasa_mensual / 100))
-    : 0;
-  const pagoNum  = esAbono ? (parseFloat(pago) || 0) : 0;
-  const saldoNuevo = esAbono
-    ? Math.max(0, saldoAnt + interes - pagoNum)
-    : saldoAnt;
+  let { fecha, pago, abono, notas, tipo, porcentaje } = req.body;
+  // Compatibilidad: si no viene 'tipo', lo inferimos de 'abono' (como antes)
+  if (!tipo) tipo = abono ? 'pago' : 'sin_pago';
 
-  const numRecibo = esAbono ? db.siguienteReciboMotos() : '';
+  const saldoAnt = db.saldoActualMoto(clienteId);
+  let interes = 0, pagoNum = 0, saldoNuevo = saldoAnt, esAbono = 0, numRecibo = '', pct = 0;
+
+  if (tipo === 'pago') {
+    esAbono = 1;
+    interes = (cliente.modalidad === 'interes')
+      ? Math.round(saldoAnt * (cliente.tasa_mensual / 100))
+      : 0;
+    pagoNum = parseFloat(pago) || 0;
+    saldoNuevo = Math.max(0, saldoAnt + interes - pagoNum);
+    numRecibo = db.siguienteReciboMotos();
+  } else if (tipo === 'mora') {
+    pct = parseFloat(porcentaje) || 0;
+    interes = Math.round(saldoAnt * (pct / 100));
+    saldoNuevo = saldoAnt + interes;
+  }
+  // tipo === 'sin_pago' -> no cambia nada (valores por defecto ya seteados)
 
   const r = db.run(
     `INSERT INTO motos_movimientos
-      (cliente_id, fecha, saldo_anterior, interes, pago, saldo_nuevo, abono, numero_recibo, notas)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-    [clienteId, fecha, saldoAnt, interes, pagoNum, saldoNuevo, esAbono, numRecibo, notas||'']
+      (cliente_id, fecha, saldo_anterior, interes, pago, saldo_nuevo, abono, tipo, porcentaje, numero_recibo, notas)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [clienteId, fecha, saldoAnt, interes, pagoNum, saldoNuevo, esAbono, tipo, pct, numRecibo, notas||'']
   );
 
-  if (saldoNuevo === 0)
+  if (tipo === 'pago' && saldoNuevo === 0)
     db.run("UPDATE motos_clientes SET estado='cancelado' WHERE id=?", [clienteId]);
 
   res.json({ id: r.lastInsertRowid, numero_recibo: numRecibo, saldo_nuevo: saldoNuevo });

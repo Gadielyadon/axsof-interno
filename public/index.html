@@ -43,7 +43,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h8M12 17V7l5 3"/><path d="M9 7h3"/></svg>
       Cuentas Motos
     </a></li>
-    <li><a href="#" class="nav-link" data-page="sistemas">
+    <!-- Módulo Sistemas oculto del menú (datos y backend intactos por si se reactiva) -->
+    <li style="display:none"><a href="#" class="nav-link" data-page="sistemas">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       Cuentas Sistemas
     </a></li>
@@ -81,15 +82,13 @@
   <div class="page active" id="page-dashboard">
     <div class="page-header"><h1>Panel general</h1></div>
     <div class="stats-grid" id="dash-stats"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;flex-wrap:wrap">
-      <div>
-        <div class="section-title">🏍 Motos activas</div>
-        <div class="clientes-list" id="dash-motos"></div>
-      </div>
-      <div>
-        <div class="section-title">💻 Sistemas activos</div>
-        <div class="clientes-list" id="dash-sistemas"></div>
-      </div>
+    <div>
+      <div class="section-title">🏍 Motos activas</div>
+      <div class="clientes-list" id="dash-motos"></div>
+    </div>
+    <!-- Sistemas oculto del panel; el div sigue existiendo para no romper el JS -->
+    <div style="display:none">
+      <div class="clientes-list" id="dash-sistemas"></div>
     </div>
   </div>
 
@@ -235,14 +234,22 @@
     <div class="modal-body">
       <div class="pago-info" id="mm-info" style="grid-template-columns:1fr 1fr;margin-bottom:1.25rem"></div>
       <input type="hidden" id="mm-estado" value="abono">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;margin-bottom:1rem">
         <button id="btn-mm-abono"   class="btn-estado activo" onclick="seleccionarEstadoMoto('abono')"><span style="font-size:1.3rem">✅</span><span>Abonó</span></button>
         <button id="btn-mm-noabono" class="btn-estado"        onclick="seleccionarEstadoMoto('no-abono')"><span style="font-size:1.3rem">❌</span><span>No abonó</span></button>
+        <button id="btn-mm-mora"    class="btn-estado mora"   onclick="seleccionarEstadoMoto('mora')"><span style="font-size:1.3rem">⚠️</span><span>Recargo mora</span></button>
       </div>
       <div id="mm-seccion-pago">
         <div class="form-group" style="margin-bottom:1rem">
           <label>Monto abonado ($)</label>
           <input type="text" id="mm-pago" placeholder="0" inputmode="numeric" oninput="fmtInput(this)">
+        </div>
+      </div>
+      <div id="mm-seccion-mora" style="display:none">
+        <div class="form-group" style="margin-bottom:1rem">
+          <label>Porcentaje de recargo (%)</label>
+          <input type="number" id="mm-porcentaje" placeholder="10" min="0" step="0.5" oninput="actualizarPreviewMora()">
+          <div id="mm-mora-preview" style="margin-top:.5rem;font-size:.85rem;color:var(--text-muted)"></div>
         </div>
       </div>
       <div class="form-grid">

@@ -207,6 +207,7 @@ a { text-decoration: none; color: inherit; }
 /* BOTONES ESTADO */
 .btn-estado { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; padding: .9rem; border-radius: 10px; background: var(--surface2); border: 2px solid var(--border); cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--text-2); transition: all .15s; }
 .btn-estado.activo { background: var(--rojo-light); border-color: var(--rojo); color: var(--rojo); }
+.btn-estado.mora.activo { background: var(--orange-bg); border-color: var(--orange); color: var(--orange); }
 
 /* EMPTY */
 .empty-state { text-align: center; padding: 3.5rem 1rem; color: var(--text-muted); background: var(--surface); border: 1.5px dashed var(--border2); border-radius: var(--radius); }

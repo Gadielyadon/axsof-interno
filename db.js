@@ -44,11 +44,14 @@ async function init() {
       pago           REAL    NOT NULL DEFAULT 0,
       saldo_nuevo    REAL    NOT NULL,
       abono          INTEGER NOT NULL DEFAULT 0,
+      tipo           TEXT    NOT NULL DEFAULT 'pago',
+      porcentaje     REAL    DEFAULT 0,
       numero_recibo  TEXT    DEFAULT '',
       notas          TEXT    DEFAULT '',
       creado_en      TEXT    DEFAULT (datetime('now'))
     );
   `);
+  migrarColumnasMotos();
 
   // ── SISTEMAS: clientes con cuota fija mensual (sin cálculo de interés)
   _db.run(`
@@ -142,6 +145,21 @@ async function init() {
   hacerBackup();
 
   console.log('[db] Base de datos iniciada:', DB_PATH);
+}
+
+// Migra la tabla motos_movimientos si viene de una versión anterior sin
+// las columnas 'tipo' (pago / sin_pago / mora) y 'porcentaje' (recargo aplicado).
+function migrarColumnasMotos() {
+  const cols = query("PRAGMA table_info(motos_movimientos)").map(c => c.name);
+  if (!cols.includes('tipo')) {
+    _db.run("ALTER TABLE motos_movimientos ADD COLUMN tipo TEXT NOT NULL DEFAULT 'pago'");
+    _db.run("UPDATE motos_movimientos SET tipo='sin_pago' WHERE abono=0");
+    _db.run("UPDATE motos_movimientos SET tipo='pago'     WHERE abono=1");
+  }
+  if (!cols.includes('porcentaje')) {
+    _db.run("ALTER TABLE motos_movimientos ADD COLUMN porcentaje REAL DEFAULT 0");
+  }
+  save();
 }
 
 function hacerBackup() {
@@ -243,8 +261,29 @@ function calcularProximoInteresMoto(clienteId) {
   return Math.round(saldo * (cliente.tasa_mensual / 100));
 }
 
+// Para clientes en modalidad "cuotas": cuántas cuotas debería haber pagado a
+// esta altura (según fecha_inicio y hoy) vs. cuántas cubrió con lo que pagó.
+// Los recargos por mora no cuentan como pago, así que no "tapan" cuotas.
+function cuotasAtrasadasMoto(cliente) {
+  if (!cliente || cliente.modalidad !== 'cuotas' || !cliente.cuota_fija) return 0;
+  if (cliente.estado === 'cancelado') return 0;
+  const [yIni, mIni] = (cliente.fecha_inicio || '').split('-').map(Number);
+  if (!yIni || !mIni) return 0;
+  const hoy = new Date();
+  const mesesTranscurridos = Math.min(
+    cliente.total_cuotas || 999,
+    Math.max(0, (hoy.getFullYear() - yIni) * 12 + (hoy.getMonth() + 1 - mIni) + 1)
+  );
+  const totalPagado = get(
+    "SELECT COALESCE(SUM(pago),0) as t FROM motos_movimientos WHERE cliente_id=? AND tipo='pago'",
+    [cliente.id]
+  ).t;
+  const cuotasCubiertas = Math.floor(totalPagado / cliente.cuota_fija);
+  return Math.max(0, mesesTranscurridos - cuotasCubiertas);
+}
+
 module.exports = {
   init, run, get, query, save, hacerBackup,
   siguienteReciboMotos, siguienteReciboSistemas, siguientePresupuesto,
-  saldoActualMoto, calcularProximoInteresMoto
+  saldoActualMoto, calcularProximoInteresMoto, cuotasAtrasadasMoto
 };

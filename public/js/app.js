@@ -169,9 +169,11 @@ function renderListaMotos(lista) {
   }
   el.innerHTML = lista.map(c => {
     const saldo = c.saldo_actual || 0;
-    const badge = c.estado==='cancelado'
-      ? `<span class="badge badge-green">✓ Cancelado</span>`
-      : saldo === 0 ? `<span class="badge badge-green">✓ Al día</span>` : '';
+    const atrasadas = c.cuotas_atrasadas || 0;
+    let badge = '';
+    if (c.estado==='cancelado') badge = `<span class="badge badge-green">✓ Cancelado</span>`;
+    else if (atrasadas > 0) badge = `<span class="badge badge-red">⚠️ Debe ${atrasadas} cuota${atrasadas>1?'s':''}</span>`;
+    else if (saldo === 0) badge = `<span class="badge badge-green">✓ Al día</span>`;
     return `<div class="cliente-card" onclick="abrirCuentaMoto(${c.id})">
       <div class="cliente-avatar">${inicialNombre(c.nombre)}</div>
       <div class="cliente-info">
@@ -216,7 +218,8 @@ function renderCuentaMoto() {
     <div class="resumen-item"><div class="r-lbl">Saldo inicial</div><div class="r-val">${fmt(c.saldo_inicial)}</div></div>
     ${esCuotas
       ? `<div class="resumen-item"><div class="r-lbl">Cuota fija</div><div class="r-val">${fmt(c.cuota_fija)}</div></div>
-         <div class="resumen-item"><div class="r-lbl">Cuotas abonadas</div><div class="r-val">${totalAbonos} / ${c.total_cuotas}</div></div>`
+         <div class="resumen-item"><div class="r-lbl">Cuotas abonadas</div><div class="r-val">${totalAbonos} / ${c.total_cuotas}</div></div>
+         <div class="resumen-item"><div class="r-lbl">Cuotas atrasadas</div><div class="r-val ${c.cuotas_atrasadas>0?'monto-rojo':''}">${c.cuotas_atrasadas>0 ? '⚠️ '+c.cuotas_atrasadas : '0'}</div></div>`
       : `<div class="resumen-item"><div class="r-lbl">Tasa mensual</div><div class="r-val">${c.tasa_mensual}%</div></div>
          <div class="resumen-item"><div class="r-lbl">Próximo interés</div><div class="r-val monto-naranja">${fmt(Math.round(saldo*(c.tasa_mensual/100)))}</div></div>`
     }
@@ -229,9 +232,12 @@ function renderCuentaMoto() {
     return;
   }
   tbody.innerHTML = _motoMovs.map(m => {
-    const estadoBadge = m.abono
-      ? `<span class="badge badge-green">✓ Abonó</span>`
-      : `<span class="badge badge-red">✗ No abonó</span>`;
+    const tipo = m.tipo || (m.abono ? 'pago' : 'sin_pago');
+    const estadoBadge = tipo==='mora'
+      ? `<span class="badge badge-orange">⚠️ Mora ${m.porcentaje?'('+m.porcentaje+'%)':''}</span>`
+      : m.abono
+        ? `<span class="badge badge-green">✓ Abonó</span>`
+        : `<span class="badge badge-red">✗ No abonó</span>`;
     const reciboBtns = m.abono
       ? `<a href="/api/motos/recibo/${m.id}" target="_blank" class="btn-recibo">📄 Ver</a>
          <button class="btn-recibo" style="margin-left:.3rem;background:var(--orange-bg);color:var(--orange);border-color:rgba(217,119,6,.2)" onclick="abrirReciboManualMoto(${m.id})">✏️ Manual</button>`
@@ -256,6 +262,7 @@ function abrirNuevoMovMoto() {
   document.getElementById('mm-fecha').value = new Date().toISOString().split('T')[0];
   document.getElementById('mm-estado').value = 'abono';
   document.getElementById('mm-pago').value = '';
+  document.getElementById('mm-porcentaje').value = '';
   document.getElementById('mm-notas').value = '';
   seleccionarEstadoMoto('abono');
   // Preview info
@@ -277,19 +284,38 @@ function seleccionarEstadoMoto(estado) {
   document.getElementById('mm-estado').value = estado;
   document.getElementById('btn-mm-abono').classList.toggle('activo', estado==='abono');
   document.getElementById('btn-mm-noabono').classList.toggle('activo', estado==='no-abono');
+  document.getElementById('btn-mm-mora').classList.toggle('activo', estado==='mora');
   document.getElementById('mm-seccion-pago').style.display = estado==='abono' ? '' : 'none';
+  document.getElementById('mm-seccion-mora').style.display = estado==='mora'  ? '' : 'none';
+  if (estado==='mora') actualizarPreviewMora();
+}
+
+function actualizarPreviewMora() {
+  const c = _motoActual;
+  const saldo = (c && c.saldo_actual) || 0;
+  const pct = parseFloat(document.getElementById('mm-porcentaje').value) || 0;
+  const recargo = Math.round(saldo * (pct/100));
+  document.getElementById('mm-mora-preview').textContent =
+    pct > 0 ? `Se suma ${fmt(recargo)} al saldo (saldo actual ${fmt(saldo)} + ${pct}%)` : '';
 }
 
 async function confirmarMovMoto() {
   const estado = document.getElementById('mm-estado').value;
   const fecha  = document.getElementById('mm-fecha').value;
   const notas  = document.getElementById('mm-notas').value;
-  const pago   = estado==='abono' ? getNumVal('mm-pago') : 0;
   if (!fecha) return toast('Ingresá la fecha', 'warn');
-  if (estado==='abono' && !pago) return toast('Ingresá el monto abonado', 'warn');
+
+  const tipoMap = { 'abono':'pago', 'no-abono':'sin_pago', 'mora':'mora' };
+  const tipo = tipoMap[estado];
+  const pago = tipo==='pago' ? getNumVal('mm-pago') : 0;
+  const porcentaje = tipo==='mora' ? (parseFloat(document.getElementById('mm-porcentaje').value)||0) : 0;
+
+  if (tipo==='pago' && !pago) return toast('Ingresá el monto abonado', 'warn');
+  if (tipo==='mora' && !porcentaje) return toast('Ingresá el porcentaje de recargo', 'warn');
+
   try {
     await api(`/api/motos/clientes/${_motoActual.id}/movimientos`, {
-      method:'POST', body:JSON.stringify({ fecha, pago, abono: estado==='abono', notas })
+      method:'POST', body:JSON.stringify({ fecha, pago, tipo, porcentaje, notas })
     });
     cerrarModal('modal-mov-moto');
     toast('Movimiento guardado');
