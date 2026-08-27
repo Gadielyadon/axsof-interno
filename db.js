@@ -282,8 +282,49 @@ function cuotasAtrasadasMoto(cliente) {
   return Math.max(0, mesesTranscurridos - cuotasCubiertas);
 }
 
+// Recalcula TODO el historial de movimientos de un cliente en orden cronológico
+// (fecha, luego id como desempate). Se usa después de crear, editar o borrar
+// cualquier movimiento, así el saldo siempre queda consistente aunque se hayan
+// cargado movimientos con fechas fuera de orden.
+function recomputeSaldosMoto(clienteId) {
+  const cliente = get('SELECT * FROM motos_clientes WHERE id=?', [clienteId]);
+  if (!cliente) return 0;
+  const movs = query(
+    'SELECT * FROM motos_movimientos WHERE cliente_id=? ORDER BY fecha ASC, id ASC',
+    [clienteId]
+  );
+  let saldo = cliente.saldo_inicial;
+  movs.forEach(m => {
+    const saldoAnt = saldo;
+    let interes = 0, saldoNuevo = saldoAnt;
+    if (m.tipo === 'pago') {
+      interes = (cliente.modalidad === 'interes')
+        ? Math.round(saldoAnt * (cliente.tasa_mensual / 100))
+        : 0;
+      saldoNuevo = Math.max(0, saldoAnt + interes - m.pago);
+    } else if (m.tipo === 'mora') {
+      interes = Math.round(saldoAnt * ((m.porcentaje || 0) / 100));
+      saldoNuevo = saldoAnt + interes;
+    }
+    _db.run(
+      'UPDATE motos_movimientos SET saldo_anterior=?, interes=?, saldo_nuevo=? WHERE id=?',
+      [saldoAnt, interes, saldoNuevo, m.id]
+    );
+    saldo = saldoNuevo;
+  });
+  // Si quedó saldado, marcar cancelado; si tenía saldo 0 y ahora debe, reactivar
+  if (saldo === 0 && movs.some(m => m.tipo === 'pago')) {
+    _db.run("UPDATE motos_clientes SET estado='cancelado' WHERE id=?", [clienteId]);
+  } else if (saldo > 0 && cliente.estado === 'cancelado') {
+    _db.run("UPDATE motos_clientes SET estado='activo' WHERE id=?", [clienteId]);
+  }
+  save();
+  return saldo;
+}
+
 module.exports = {
   init, run, get, query, save, hacerBackup,
   siguienteReciboMotos, siguienteReciboSistemas, siguientePresupuesto,
-  saldoActualMoto, calcularProximoInteresMoto, cuotasAtrasadasMoto
+  saldoActualMoto, calcularProximoInteresMoto, cuotasAtrasadasMoto,
+  recomputeSaldosMoto
 };

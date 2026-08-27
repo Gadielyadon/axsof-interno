@@ -261,14 +261,44 @@ router.post('/clientes/:id/movimientos', (req, res) => {
     [clienteId, fecha, saldoAnt, interes, pagoNum, saldoNuevo, esAbono, tipo, pct, numRecibo, notas||'']
   );
 
-  if (tipo === 'pago' && saldoNuevo === 0)
-    db.run("UPDATE motos_clientes SET estado='cancelado' WHERE id=?", [clienteId]);
+  // Recalcula todo el historial por si este movimiento se cargó con una fecha
+  // que no es la última cronológicamente (evita que el saldo mostrado quede mal).
+  const saldoFinal = db.recomputeSaldosMoto(clienteId);
 
-  res.json({ id: r.lastInsertRowid, numero_recibo: numRecibo, saldo_nuevo: saldoNuevo });
+  res.json({ id: r.lastInsertRowid, numero_recibo: numRecibo, saldo_nuevo: saldoFinal });
+});
+
+// Editar un movimiento existente (fecha, monto, tipo, porcentaje, notas).
+// Recalcula todo el historial del cliente después del cambio.
+router.put('/clientes/:id/movimientos/:movId', (req, res) => {
+  const clienteId = parseInt(req.params.id);
+  const movId     = parseInt(req.params.movId);
+  const mov = db.get('SELECT * FROM motos_movimientos WHERE id=? AND cliente_id=?', [movId, clienteId]);
+  if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
+
+  let { fecha, pago, tipo, porcentaje, notas } = req.body;
+  if (!tipo) tipo = mov.tipo;
+  const pagoNum = tipo === 'pago' ? (parseFloat(pago) || 0) : 0;
+  const pct     = tipo === 'mora' ? (parseFloat(porcentaje) || 0) : 0;
+  const esAbono = tipo === 'pago' ? 1 : 0;
+  // Si pasa a ser un pago y no tenía recibo asignado todavía, le damos uno.
+  const numRecibo = (tipo === 'pago' && !mov.numero_recibo) ? db.siguienteReciboMotos() : mov.numero_recibo;
+
+  db.run(
+    `UPDATE motos_movimientos
+     SET fecha=?, pago=?, tipo=?, porcentaje=?, abono=?, numero_recibo=?, notas=?
+     WHERE id=?`,
+    [fecha || mov.fecha, pagoNum, tipo, pct, esAbono, numRecibo, notas ?? mov.notas, movId]
+  );
+
+  const saldoFinal = db.recomputeSaldosMoto(clienteId);
+  res.json({ ok: true, saldo_nuevo: saldoFinal });
 });
 
 router.delete('/movimientos/:id', (req, res) => {
+  const mov = db.get('SELECT cliente_id FROM motos_movimientos WHERE id=?', [req.params.id]);
   db.run('DELETE FROM motos_movimientos WHERE id=?', [req.params.id]);
+  if (mov) db.recomputeSaldosMoto(mov.cliente_id);
   res.json({ ok: true });
 });
 

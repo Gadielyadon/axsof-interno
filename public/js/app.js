@@ -216,6 +216,7 @@ function renderCuentaMoto() {
   document.getElementById('moto-cuenta-resumen').innerHTML = `
     <div class="resumen-item"><div class="r-lbl">Saldo actual</div><div class="r-val rojo">${fmt(saldo)}</div></div>
     <div class="resumen-item"><div class="r-lbl">Saldo inicial</div><div class="r-val">${fmt(c.saldo_inicial)}</div></div>
+    <div class="resumen-item"><div class="r-lbl">Cliente desde</div><div class="r-val" style="font-size:.9rem">${c.creado_en ? fmtFecha(c.creado_en.split(' ')[0]) : '—'}</div></div>
     ${esCuotas
       ? `<div class="resumen-item"><div class="r-lbl">Cuota fija</div><div class="r-val">${fmt(c.cuota_fija)}</div></div>
          <div class="resumen-item"><div class="r-lbl">Cuotas abonadas</div><div class="r-val">${totalAbonos} / ${c.total_cuotas}</div></div>
@@ -250,7 +251,10 @@ function renderCuentaMoto() {
       <td class="monto-verde">${m.pago ? fmt(m.pago) : '—'}</td>
       <td class="monto-rojo">${fmt(m.saldo_nuevo)}</td>
       <td>${reciboBtns}</td>
-      <td><button class="btn-eliminar" onclick="eliminarMovMoto(${m.id})" title="Eliminar">🗑</button></td>
+      <td>
+        <button class="btn-eliminar" style="background:var(--azul-light);color:var(--azul2);border-color:transparent;margin-right:.3rem" onclick="editarMovMoto(${m.id})" title="Editar">✏️</button>
+        <button class="btn-eliminar" onclick="eliminarMovMoto(${m.id})" title="Eliminar">🗑</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -258,7 +262,11 @@ function renderCuentaMoto() {
 function volverListaMotos() { cargarListaMotos(); }
 
 // Modal nuevo movimiento moto
+let _movEditandoId = null; // null = cargando nuevo movimiento, id = editando uno existente
+
 function abrirNuevoMovMoto() {
+  _movEditandoId = null;
+  document.getElementById('modal-mov-titulo').textContent = '🏍 Nuevo movimiento';
   document.getElementById('mm-fecha').value = new Date().toISOString().split('T')[0];
   document.getElementById('mm-estado').value = 'abono';
   document.getElementById('mm-pago').value = '';
@@ -277,6 +285,25 @@ function abrirNuevoMovMoto() {
   if (esCuotas && c.cuota_fija) {
     document.getElementById('mm-pago').value = c.cuota_fija.toLocaleString('es-AR').replace(/,/g,'.');
   }
+  abrirModal('modal-mov-moto');
+}
+
+function editarMovMoto(movId) {
+  const m = _motoMovs.find(x => x.id === movId);
+  if (!m) return;
+  _movEditandoId = movId;
+  document.getElementById('modal-mov-titulo').textContent = '✏️ Editar movimiento';
+  document.getElementById('mm-fecha').value = m.fecha;
+  document.getElementById('mm-notas').value = m.notas || '';
+  document.getElementById('mm-info').innerHTML = `
+    <div><div class="pi-lbl">Saldo anterior de esta fila</div><div class="pi-val rojo">${fmt(m.saldo_anterior)}</div></div>
+    <div><div class="pi-lbl">Saldo resultante</div><div class="pi-val">${fmt(m.saldo_nuevo)}</div></div>
+  `;
+  const tipo = m.tipo || (m.abono ? 'pago' : 'sin_pago');
+  const estadoMap = { 'pago':'abono', 'sin_pago':'no-abono', 'mora':'mora' };
+  document.getElementById('mm-pago').value = m.pago ? m.pago.toLocaleString('es-AR').replace(/,/g,'.') : '';
+  document.getElementById('mm-porcentaje').value = m.porcentaje || '';
+  seleccionarEstadoMoto(estadoMap[tipo] || 'abono');
   abrirModal('modal-mov-moto');
 }
 
@@ -314,11 +341,18 @@ async function confirmarMovMoto() {
   if (tipo==='mora' && !porcentaje) return toast('Ingresá el porcentaje de recargo', 'warn');
 
   try {
-    await api(`/api/motos/clientes/${_motoActual.id}/movimientos`, {
-      method:'POST', body:JSON.stringify({ fecha, pago, tipo, porcentaje, notas })
-    });
+    if (_movEditandoId) {
+      await api(`/api/motos/clientes/${_motoActual.id}/movimientos/${_movEditandoId}`, {
+        method:'PUT', body:JSON.stringify({ fecha, pago, tipo, porcentaje, notas })
+      });
+      toast('Movimiento actualizado');
+    } else {
+      await api(`/api/motos/clientes/${_motoActual.id}/movimientos`, {
+        method:'POST', body:JSON.stringify({ fecha, pago, tipo, porcentaje, notas })
+      });
+      toast('Movimiento guardado');
+    }
     cerrarModal('modal-mov-moto');
-    toast('Movimiento guardado');
     await abrirCuentaMoto(_motoActual.id);
   } catch(e) { toast(e.message,'err'); }
 }
