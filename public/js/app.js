@@ -364,6 +364,17 @@ async function eliminarMovMoto(id) {
   await abrirCuentaMoto(_motoActual.id);
 }
 
+async function eliminarClienteMotoActual() {
+  const c = _motoActual;
+  if (!confirm(`¿Eliminar a "${c.nombre}"? Se borra también TODO su historial de movimientos y no se puede deshacer.`)) return;
+  if (!confirm('Confirmá de nuevo: esta acción es DEFINITIVA. ¿Eliminar el cliente igual?')) return;
+  try {
+    await api(`/api/motos/clientes/${c.id}`, { method:'DELETE' });
+    toast('Cliente eliminado');
+    volverListaMotos();
+  } catch(e) { toast(e.message,'err'); }
+}
+
 // Modal nuevo/editar cliente moto
 function abrirNuevoMoto() {
   document.getElementById('modal-moto-titulo').textContent = 'Nueva cuenta moto';
