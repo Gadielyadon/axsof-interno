@@ -220,7 +220,8 @@ function renderCuentaMoto() {
     ${esCuotas
       ? `<div class="resumen-item"><div class="r-lbl">Cuota fija</div><div class="r-val">${fmt(c.cuota_fija)}</div></div>
          <div class="resumen-item"><div class="r-lbl">Cuotas abonadas</div><div class="r-val">${totalAbonos} / ${c.total_cuotas}</div></div>
-         <div class="resumen-item"><div class="r-lbl">Cuotas atrasadas</div><div class="r-val ${c.cuotas_atrasadas>0?'monto-rojo':''}">${c.cuotas_atrasadas>0 ? '⚠️ '+c.cuotas_atrasadas : '0'}</div></div>`
+         <div class="resumen-item"><div class="r-lbl">Cuotas atrasadas</div><div class="r-val ${c.cuotas_atrasadas>0?'monto-rojo':''}">${c.cuotas_atrasadas>0 ? '⚠️ '+c.cuotas_atrasadas : '0'}</div></div>
+         <div class="resumen-item"><div class="r-lbl">% mora mensual</div><div class="r-val monto-naranja">${c.mora_porcentaje||6}%</div></div>`
       : `<div class="resumen-item"><div class="r-lbl">Tasa mensual</div><div class="r-val">${c.tasa_mensual}%</div></div>
          <div class="resumen-item"><div class="r-lbl">Próximo interés</div><div class="r-val monto-naranja">${fmt(Math.round(saldo*(c.tasa_mensual/100)))}</div></div>`
     }
@@ -229,34 +230,86 @@ function renderCuentaMoto() {
 
   const tbody = document.getElementById('moto-mov-tbody');
   if (!_motoMovs.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:2rem">Sin movimientos todavía</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:2rem">Sin movimientos todavía</td></tr>`;
     return;
   }
+  const cuotaBaseMora = (c.cuota_fija && c.cuota_fija > 0) ? c.cuota_fija : null;
   tbody.innerHTML = _motoMovs.map(m => {
-    const tipo = m.tipo || (m.abono ? 'pago' : 'sin_pago');
-    const estadoBadge = tipo==='mora'
-      ? `<span class="badge badge-orange">⚠️ Mora ${m.porcentaje?'('+m.porcentaje+'%)':''}</span>`
-      : m.abono
-        ? `<span class="badge badge-green">✓ Abonó</span>`
-        : `<span class="badge badge-red">✗ No abonó</span>`;
+    const estadoBadge = m.abono
+      ? `<span class="badge badge-green">✓ Abonó</span>`
+      : `<span class="badge badge-red">✗ No abonó</span>`;
+    const moraBadge = m.mora_aplicada
+      ? `<span class="badge badge-orange" style="margin-left:.3rem" title="${m.mora_desde&&m.mora_hasta ? fmtFecha(m.mora_desde)+' a '+fmtFecha(m.mora_hasta) : ''}">${ICON_ALERTA} Mora ${m.porcentaje||0}%${m.cuotas_mora>1?' ×'+m.cuotas_mora:''}</span>`
+      : '';
+    const btnDesglose = m.mora_aplicada
+      ? `<button class="btn-accion-mov btn-desglose-mov" onclick="toggleDesgloseMora(${m.id})" title="Ver desglose de la mora" id="btn-desglose-${m.id}">${ICON_CHEVRON}</button>`
+      : '';
     const reciboBtns = m.abono
-      ? `<a href="/api/motos/recibo/${m.id}" target="_blank" class="btn-recibo">📄 Ver</a>
-         <button class="btn-recibo" style="margin-left:.3rem;background:var(--orange-bg);color:var(--orange);border-color:rgba(217,119,6,.2)" onclick="abrirReciboManualMoto(${m.id})">✏️ Manual</button>`
+      ? `<a href="/api/motos/recibo/${m.id}" target="_blank" class="btn-recibo">${ICON_DOC} Ver</a>
+         <button class="btn-recibo" style="margin-left:.3rem;background:var(--orange-bg);color:var(--orange);border-color:rgba(217,119,6,.2)" onclick="abrirReciboManualMoto(${m.id})">${ICON_LAPIZ} Manual</button>`
       : '—';
-    return `<tr>
+    const filaPrincipal = `<tr>
       <td>${fmtFecha(m.fecha)}</td>
-      <td>${estadoBadge}</td>
+      <td>${estadoBadge}${moraBadge}</td>
       <td class="monto-rojo">${fmt(m.saldo_anterior)}</td>
       <td class="monto-naranja">${m.interes ? fmt(m.interes) : '—'}</td>
       <td class="monto-verde">${m.pago ? fmt(m.pago) : '—'}</td>
       <td class="monto-rojo">${fmt(m.saldo_nuevo)}</td>
       <td>${reciboBtns}</td>
-      <td>
-        <button class="btn-eliminar" style="background:var(--azul-light);color:var(--azul2);border-color:transparent;margin-right:.3rem" onclick="editarMovMoto(${m.id})" title="Editar">✏️</button>
-        <button class="btn-eliminar" onclick="eliminarMovMoto(${m.id})" title="Eliminar">🗑</button>
+      <td style="white-space:nowrap">
+        ${btnDesglose}
+        <button class="btn-accion-mov btn-editar-mov" onclick="editarMovMoto(${m.id})" title="Editar">${ICON_LAPIZ}</button>
+        <button class="btn-accion-mov btn-borrar-mov" onclick="eliminarMovMoto(${m.id})" title="Eliminar">${ICON_TACHO}</button>
       </td>
     </tr>`;
+    const filaDesglose = m.mora_aplicada ? `<tr id="fila-desglose-${m.id}" style="display:none">
+      <td colspan="8" style="padding:0 0 1rem 0;background:var(--surface2)">
+        ${renderDesgloseMora(m, cuotaBaseMora)}
+      </td>
+    </tr>` : '';
+    return filaPrincipal + filaDesglose;
   }).join('');
+}
+
+// Íconos SVG en línea con el resto de la app (estilo Feather/Lucide, stroke=currentColor)
+const ICON_LAPIZ = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:-2px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+const ICON_TACHO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
+const ICON_DOC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;transition:transform .15s"><polyline points="6 9 12 15 18 9"/></svg>`;
+const ICON_ALERTA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;vertical-align:-1px"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+
+// Arma el HTML del desglose cuota por cuota de un movimiento con mora aplicada.
+function renderDesgloseMora(m, cuotaBaseMora) {
+  const base = cuotaBaseMora || (m.interes && m.cuotas_mora ? Math.round(m.interes / m.cuotas_mora) : 0);
+  const montoUnitario = base ? Math.round(base * ((m.porcentaje||0)/100)) : Math.round((m.interes||0) / (m.cuotas_mora||1));
+  const cant = m.cuotas_mora || 1;
+  let filas = '';
+  for (let i = 1; i <= cant; i++) {
+    filas += `<div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">
+      <span>Cuota atrasada N°${i}</span><span style="font-weight:600">${fmt(montoUnitario)}</span>
+    </div>`;
+  }
+  return `<div style="padding:1rem 1.25rem">
+    <div style="background:#fff;border:1px solid rgba(217,119,6,.25);border-radius:10px;padding:.85rem 1rem;max-width:480px">
+      <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:.5rem">
+        Rango: ${m.mora_desde&&m.mora_hasta ? fmtFecha(m.mora_desde)+' → '+fmtFecha(m.mora_hasta) : '—'}
+        ${base ? ` · ${fmt(base)} × ${m.porcentaje||0}% por mes atrasado` : ''}
+      </div>
+      ${filas}
+      <div style="display:flex;justify-content:space-between;padding-top:.5rem;font-weight:800;color:var(--orange)">
+        <span>Total recargo por mora</span><span>${fmt(m.interes)}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleDesgloseMora(movId) {
+  const fila = document.getElementById(`fila-desglose-${movId}`);
+  const btn  = document.getElementById(`btn-desglose-${movId}`);
+  if (!fila) return;
+  const abierto = fila.style.display !== 'none';
+  fila.style.display = abierto ? 'none' : '';
+  btn.querySelector('svg').style.transform = abierto ? '' : 'rotate(180deg)';
 }
 
 function volverListaMotos() { cargarListaMotos(); }
@@ -264,17 +317,29 @@ function volverListaMotos() { cargarListaMotos(); }
 // Modal nuevo movimiento moto
 let _movEditandoId = null; // null = cargando nuevo movimiento, id = editando uno existente
 
+function mesesEntreFechasJS(desde, hasta) {
+  if (!desde || !hasta) return 0;
+  const [y1,m1] = desde.split('-').map(Number);
+  const [y2,m2] = hasta.split('-').map(Number);
+  if (!y1 || !y2) return 0;
+  return Math.max(1, (y2-y1)*12 + (m2-m1) + 1);
+}
+
 function abrirNuevoMovMoto() {
   _movEditandoId = null;
   document.getElementById('modal-mov-titulo').textContent = '🏍 Nuevo movimiento';
   document.getElementById('mm-fecha').value = new Date().toISOString().split('T')[0];
   document.getElementById('mm-estado').value = 'abono';
   document.getElementById('mm-pago').value = '';
-  document.getElementById('mm-porcentaje').value = '';
+  document.getElementById('mm-mora-check').checked = false;
   document.getElementById('mm-notas').value = '';
-  seleccionarEstadoMoto('abono');
-  // Preview info
   const c = _motoActual;
+  document.getElementById('mm-mora-desde').value = c.fecha_inicio || '';
+  document.getElementById('mm-mora-hasta').value = new Date().toISOString().split('T')[0];
+  document.getElementById('mm-mora-pct-cliente').textContent = (c.mora_porcentaje || 6) + '%';
+  seleccionarEstadoMoto('abono');
+  toggleMoraMoto();
+  // Preview info
   const saldo = c.saldo_actual || 0;
   const esCuotas = c.modalidad === 'cuotas';
   document.getElementById('mm-info').innerHTML = `
@@ -292,6 +357,7 @@ function editarMovMoto(movId) {
   const m = _motoMovs.find(x => x.id === movId);
   if (!m) return;
   _movEditandoId = movId;
+  const c = _motoActual;
   document.getElementById('modal-mov-titulo').textContent = '✏️ Editar movimiento';
   document.getElementById('mm-fecha').value = m.fecha;
   document.getElementById('mm-notas').value = m.notas || '';
@@ -300,10 +366,13 @@ function editarMovMoto(movId) {
     <div><div class="pi-lbl">Saldo resultante</div><div class="pi-val">${fmt(m.saldo_nuevo)}</div></div>
   `;
   const tipo = m.tipo || (m.abono ? 'pago' : 'sin_pago');
-  const estadoMap = { 'pago':'abono', 'sin_pago':'no-abono', 'mora':'mora' };
   document.getElementById('mm-pago').value = m.pago ? m.pago.toLocaleString('es-AR').replace(/,/g,'.') : '';
-  document.getElementById('mm-porcentaje').value = m.porcentaje || '';
-  seleccionarEstadoMoto(estadoMap[tipo] || 'abono');
+  document.getElementById('mm-mora-check').checked = !!m.mora_aplicada;
+  document.getElementById('mm-mora-desde').value = m.mora_desde || c.fecha_inicio || '';
+  document.getElementById('mm-mora-hasta').value = m.mora_hasta || m.fecha;
+  document.getElementById('mm-mora-pct-cliente').textContent = (m.mora_aplicada ? m.porcentaje : (c.mora_porcentaje||6)) + '%';
+  seleccionarEstadoMoto(tipo === 'pago' ? 'abono' : 'no-abono');
+  toggleMoraMoto();
   abrirModal('modal-mov-moto');
 }
 
@@ -311,19 +380,42 @@ function seleccionarEstadoMoto(estado) {
   document.getElementById('mm-estado').value = estado;
   document.getElementById('btn-mm-abono').classList.toggle('activo', estado==='abono');
   document.getElementById('btn-mm-noabono').classList.toggle('activo', estado==='no-abono');
-  document.getElementById('btn-mm-mora').classList.toggle('activo', estado==='mora');
   document.getElementById('mm-seccion-pago').style.display = estado==='abono' ? '' : 'none';
-  document.getElementById('mm-seccion-mora').style.display = estado==='mora'  ? '' : 'none';
-  if (estado==='mora') actualizarPreviewMora();
+}
+
+function toggleMoraMoto() {
+  const on = document.getElementById('mm-mora-check').checked;
+  document.getElementById('mm-seccion-mora').style.display = on ? '' : 'none';
+  document.getElementById('mm-mora-wrap').style.borderColor = on ? 'var(--orange)' : 'var(--border)';
+  document.getElementById('mm-mora-wrap').style.background = on ? 'var(--orange-bg)' : '';
+  if (on) actualizarPreviewMora();
 }
 
 function actualizarPreviewMora() {
   const c = _motoActual;
-  const saldo = (c && c.saldo_actual) || 0;
-  const pct = parseFloat(document.getElementById('mm-porcentaje').value) || 0;
-  const recargo = Math.round(saldo * (pct/100));
-  document.getElementById('mm-mora-preview').textContent =
-    pct > 0 ? `Se suma ${fmt(recargo)} al saldo (saldo actual ${fmt(saldo)} + ${pct}%)` : '';
+  const cuotaBase = (c.cuota_fija && c.cuota_fija > 0) ? c.cuota_fija : (c.saldo_actual || 0);
+  const pct = c.mora_porcentaje || 6;
+  const desde = document.getElementById('mm-mora-desde').value;
+  const hasta = document.getElementById('mm-mora-hasta').value;
+  const cant = mesesEntreFechasJS(desde, hasta);
+  const el = document.getElementById('mm-mora-preview');
+  if (!cant) { el.innerHTML = '<div style="font-size:.85rem;color:var(--text-muted)">Completá ambas fechas para ver el cálculo</div>'; return; }
+  const montoUnitario = Math.round(cuotaBase * (pct/100));
+  let filas = '';
+  for (let i = 1; i <= cant; i++) {
+    filas += `<div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">
+      <span>Cuota atrasada N°${i}</span><span style="font-weight:600">${fmt(montoUnitario)}</span>
+    </div>`;
+  }
+  const total = montoUnitario * cant;
+  el.innerHTML = `
+    <div style="background:var(--orange-bg);border:1px solid rgba(217,119,6,.25);border-radius:10px;padding:.75rem .9rem">
+      <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:.4rem">${fmt(cuotaBase)} × ${pct}% por cada mes atrasado (${cant} mes${cant!=1?'es':''})</div>
+      ${filas}
+      <div style="display:flex;justify-content:space-between;padding-top:.5rem;font-weight:800;color:var(--orange)">
+        <span>Total recargo por mora</span><span>${fmt(total)}</span>
+      </div>
+    </div>`;
 }
 
 async function confirmarMovMoto() {
@@ -332,24 +424,23 @@ async function confirmarMovMoto() {
   const notas  = document.getElementById('mm-notas').value;
   if (!fecha) return toast('Ingresá la fecha', 'warn');
 
-  const tipoMap = { 'abono':'pago', 'no-abono':'sin_pago', 'mora':'mora' };
-  const tipo = tipoMap[estado];
+  const tipo = estado === 'abono' ? 'pago' : 'sin_pago';
   const pago = tipo==='pago' ? getNumVal('mm-pago') : 0;
-  const porcentaje = tipo==='mora' ? (parseFloat(document.getElementById('mm-porcentaje').value)||0) : 0;
+  const moraAplicada = document.getElementById('mm-mora-check').checked;
+  const moraDesde = document.getElementById('mm-mora-desde').value;
+  const moraHasta = document.getElementById('mm-mora-hasta').value;
+  const porcentaje = moraAplicada ? (_motoActual.mora_porcentaje || 6) : 0;
 
   if (tipo==='pago' && !pago) return toast('Ingresá el monto abonado', 'warn');
-  if (tipo==='mora' && !porcentaje) return toast('Ingresá el porcentaje de recargo', 'warn');
+  if (moraAplicada && (!moraDesde || !moraHasta)) return toast('Completá el rango de fechas de la mora', 'warn');
 
+  const body = JSON.stringify({ fecha, pago, tipo, moraAplicada, porcentaje, moraDesde, moraHasta, notas });
   try {
     if (_movEditandoId) {
-      await api(`/api/motos/clientes/${_motoActual.id}/movimientos/${_movEditandoId}`, {
-        method:'PUT', body:JSON.stringify({ fecha, pago, tipo, porcentaje, notas })
-      });
+      await api(`/api/motos/clientes/${_motoActual.id}/movimientos/${_movEditandoId}`, { method:'PUT', body });
       toast('Movimiento actualizado');
     } else {
-      await api(`/api/motos/clientes/${_motoActual.id}/movimientos`, {
-        method:'POST', body:JSON.stringify({ fecha, pago, tipo, porcentaje, notas })
-      });
+      await api(`/api/motos/clientes/${_motoActual.id}/movimientos`, { method:'POST', body });
       toast('Movimiento guardado');
     }
     cerrarModal('modal-mov-moto');
@@ -382,6 +473,7 @@ function abrirNuevoMoto() {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('fm-tasa').value = '6';
+  document.getElementById('fm-mora-pct').value = '6';
   document.getElementById('fm-modalidad').value = 'interes';
   document.getElementById('fm-fecha-inicio').value = new Date().toISOString().split('T')[0];
   document.getElementById('fm-id').value = '';
@@ -398,6 +490,7 @@ function editarMotoActual() {
   document.getElementById('fm-dni').value       = c.dni||'';
   document.getElementById('fm-moto').value      = c.moto_descripcion||'';
   document.getElementById('fm-tasa').value      = c.tasa_mensual||6;
+  document.getElementById('fm-mora-pct').value  = c.mora_porcentaje||6;
   document.getElementById('fm-modalidad').value = c.modalidad||'interes';
   document.getElementById('fm-obs').value       = c.observaciones||'';
   document.getElementById('fm-fecha-inicio').value = c.fecha_inicio||'';
@@ -419,17 +512,20 @@ function cambiarModalidadMoto() {
 
 async function guardarClienteMoto() {
   const id = document.getElementById('fm-id').value;
+  const fechaInicio = document.getElementById('fm-fecha-inicio').value;
+  if (!fechaInicio) return toast('La fecha de inicio es obligatoria', 'warn');
   const body = {
     nombre:          document.getElementById('fm-nombre').value.trim(),
     telefono:        document.getElementById('fm-telefono').value.trim(),
     dni:             document.getElementById('fm-dni').value.trim(),
     moto_descripcion:document.getElementById('fm-moto').value.trim(),
     tasa_mensual:    parseFloat(document.getElementById('fm-tasa').value)||6,
+    mora_porcentaje: parseFloat(document.getElementById('fm-mora-pct').value)||6,
     modalidad:       document.getElementById('fm-modalidad').value,
     cuota_fija:      getNumVal('fm-cuota'),
     total_cuotas:    parseInt(document.getElementById('fm-total-cuotas').value)||0,
     observaciones:   document.getElementById('fm-obs').value.trim(),
-    fecha_inicio:    document.getElementById('fm-fecha-inicio').value,
+    fecha_inicio:    fechaInicio,
   };
   if (!body.nombre) return toast('Nombre requerido','warn');
   try {

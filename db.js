@@ -159,7 +159,31 @@ function migrarColumnasMotos() {
   if (!cols.includes('porcentaje')) {
     _db.run("ALTER TABLE motos_movimientos ADD COLUMN porcentaje REAL DEFAULT 0");
   }
+  if (!cols.includes('mora_aplicada')) {
+    _db.run("ALTER TABLE motos_movimientos ADD COLUMN mora_aplicada INTEGER NOT NULL DEFAULT 0");
+    _db.run("ALTER TABLE motos_movimientos ADD COLUMN cuotas_mora REAL DEFAULT 0");
+    // La mora pasa de ser un "tipo" exclusivo a un extra combinable con pago/sin_pago.
+    _db.run("UPDATE motos_movimientos SET mora_aplicada=1, cuotas_mora=1, tipo='sin_pago' WHERE tipo='mora'");
+  }
+  if (!cols.includes('mora_desde')) {
+    _db.run("ALTER TABLE motos_movimientos ADD COLUMN mora_desde TEXT DEFAULT ''");
+    _db.run("ALTER TABLE motos_movimientos ADD COLUMN mora_hasta TEXT DEFAULT ''");
+  }
+  const colsCli = query("PRAGMA table_info(motos_clientes)").map(c => c.name);
+  if (!colsCli.includes('mora_porcentaje')) {
+    _db.run("ALTER TABLE motos_clientes ADD COLUMN mora_porcentaje REAL DEFAULT 6");
+  }
   save();
+}
+
+// Cantidad de meses de calendario entre dos fechas "YYYY-MM-DD", inclusive.
+// Ej: 2026-06 a 2026-08 -> 3 (junio, julio, agosto).
+function mesesEntreFechas(desde, hasta) {
+  if (!desde || !hasta) return 1;
+  const [y1, m1] = desde.split('-').map(Number);
+  const [y2, m2] = hasta.split('-').map(Number);
+  if (!y1 || !y2) return 1;
+  return Math.max(1, (y2 - y1) * 12 + (m2 - m1) + 1);
 }
 
 function hacerBackup() {
@@ -296,16 +320,19 @@ function recomputeSaldosMoto(clienteId) {
   let saldo = cliente.saldo_inicial;
   movs.forEach(m => {
     const saldoAnt = saldo;
-    let interes = 0, saldoNuevo = saldoAnt;
-    if (m.tipo === 'pago') {
-      interes = (cliente.modalidad === 'interes')
-        ? Math.round(saldoAnt * (cliente.tasa_mensual / 100))
-        : 0;
-      saldoNuevo = Math.max(0, saldoAnt + interes - m.pago);
-    } else if (m.tipo === 'mora') {
-      interes = Math.round(saldoAnt * ((m.porcentaje || 0) / 100));
-      saldoNuevo = saldoAnt + interes;
+    let interesCuota = 0, interesMora = 0;
+    if (m.tipo === 'pago' && cliente.modalidad === 'interes') {
+      interesCuota = Math.round(saldoAnt * (cliente.tasa_mensual / 100));
     }
+    if (m.mora_aplicada) {
+      // El recargo por mora se calcula sobre la CUOTA FIJA (no sobre el saldo total),
+      // multiplicado por la cantidad de cuotas atrasadas a las que se les aplica.
+      const base = cliente.cuota_fija > 0 ? cliente.cuota_fija : saldoAnt;
+      interesMora = Math.round(base * ((m.porcentaje || 0) / 100) * (m.cuotas_mora || 1));
+    }
+    const interes = interesCuota + interesMora;
+    const pago = m.tipo === 'pago' ? m.pago : 0;
+    const saldoNuevo = Math.max(0, saldoAnt + interes - pago);
     _db.run(
       'UPDATE motos_movimientos SET saldo_anterior=?, interes=?, saldo_nuevo=? WHERE id=?',
       [saldoAnt, interes, saldoNuevo, m.id]
@@ -326,5 +353,5 @@ module.exports = {
   init, run, get, query, save, hacerBackup,
   siguienteReciboMotos, siguienteReciboSistemas, siguientePresupuesto,
   saldoActualMoto, calcularProximoInteresMoto, cuotasAtrasadasMoto,
-  recomputeSaldosMoto
+  recomputeSaldosMoto, mesesEntreFechas
 };

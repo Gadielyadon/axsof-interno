@@ -174,6 +174,14 @@ a { text-decoration: none; color: inherit; }
 .btn-eliminar { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: .85rem; padding: .2rem .4rem; border-radius: 4px; transition: all .15s; opacity: .5; }
 .btn-eliminar:hover { opacity: 1; color: var(--rojo); background: var(--rojo-light); }
 
+.btn-accion-mov { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: none; border-radius: 8px; cursor: pointer; color: #fff; transition: transform .12s, filter .12s; margin-right: .35rem; }
+.btn-accion-mov:last-child { margin-right: 0; }
+.btn-accion-mov:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-accion-mov:active { transform: translateY(0); }
+.btn-desglose-mov { background: #0ea5e9; }
+.btn-editar-mov   { background: #f59e0b; }
+.btn-borrar-mov   { background: var(--rojo); }
+
 /* MODALES */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.3); backdrop-filter: blur(3px); z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
 .modal-overlay.open { display: flex; }

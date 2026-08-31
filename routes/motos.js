@@ -181,32 +181,36 @@ router.get('/clientes/:id', (req, res) => {
 
 router.post('/clientes', (req, res) => {
   const { nombre, telefono, dni, moto_descripcion, saldo_inicial, tasa_mensual,
-          modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio } = req.body;
+          modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio, mora_porcentaje } = req.body;
   if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+  if (!fecha_inicio) return res.status(400).json({ error: 'La fecha de inicio es obligatoria' });
   const r = db.run(
     `INSERT INTO motos_clientes
       (nombre, telefono, dni, moto_descripcion, saldo_inicial, tasa_mensual,
-       modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+       modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio, mora_porcentaje)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [nombre, telefono||'', dni||'', moto_descripcion||'',
      parseFloat(saldo_inicial)||0, parseFloat(tasa_mensual)||6,
      modalidad||'interes', parseFloat(cuota_fija)||0, parseInt(total_cuotas)||0,
-     observaciones||'', fecha_inicio||new Date().toISOString().split('T')[0]]
+     observaciones||'', fecha_inicio, parseFloat(mora_porcentaje)||6]
   );
   res.json({ id: r.lastInsertRowid });
 });
 
 router.put('/clientes/:id', (req, res) => {
   const { nombre, telefono, dni, moto_descripcion, tasa_mensual,
-          modalidad, cuota_fija, total_cuotas, observaciones, estado } = req.body;
+          modalidad, cuota_fija, total_cuotas, observaciones, estado, fecha_inicio, mora_porcentaje } = req.body;
+  if (!fecha_inicio) return res.status(400).json({ error: 'La fecha de inicio es obligatoria' });
   db.run(
     `UPDATE motos_clientes SET nombre=?, telefono=?, dni=?, moto_descripcion=?,
-     tasa_mensual=?, modalidad=?, cuota_fija=?, total_cuotas=?, observaciones=?, estado=?
+     tasa_mensual=?, modalidad=?, cuota_fija=?, total_cuotas=?, observaciones=?, estado=?,
+     fecha_inicio=?, mora_porcentaje=?
      WHERE id=?`,
     [nombre, telefono||'', dni||'', moto_descripcion||'',
      parseFloat(tasa_mensual)||6, modalidad||'interes',
      parseFloat(cuota_fija)||0, parseInt(total_cuotas)||0,
-     observaciones||'', estado||'activo', req.params.id]
+     observaciones||'', estado||'activo', fecha_inicio, parseFloat(mora_porcentaje)||6,
+     req.params.id]
   );
   res.json({ ok: true });
 });
@@ -232,43 +236,33 @@ router.post('/clientes/:id/movimientos', (req, res) => {
   const cliente   = db.get('SELECT * FROM motos_clientes WHERE id=?', [clienteId]);
   if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  let { fecha, pago, abono, notas, tipo, porcentaje } = req.body;
+  let { fecha, pago, abono, notas, tipo, moraAplicada, porcentaje, moraDesde, moraHasta } = req.body;
   // Compatibilidad: si no viene 'tipo', lo inferimos de 'abono' (como antes)
   if (!tipo) tipo = abono ? 'pago' : 'sin_pago';
 
-  const saldoAnt = db.saldoActualMoto(clienteId);
-  let interes = 0, pagoNum = 0, saldoNuevo = saldoAnt, esAbono = 0, numRecibo = '', pct = 0;
+  const esAbono   = tipo === 'pago' ? 1 : 0;
+  const pagoNum   = tipo === 'pago' ? (parseFloat(pago) || 0) : 0;
+  const aplicaMora = !!moraAplicada;
+  const pct        = aplicaMora ? (parseFloat(porcentaje) || 0) : 0;
+  const cantCuotas = aplicaMora ? db.mesesEntreFechas(moraDesde, moraHasta) : 0;
+  const numRecibo  = tipo === 'pago' ? db.siguienteReciboMotos() : '';
 
-  if (tipo === 'pago') {
-    esAbono = 1;
-    interes = (cliente.modalidad === 'interes')
-      ? Math.round(saldoAnt * (cliente.tasa_mensual / 100))
-      : 0;
-    pagoNum = parseFloat(pago) || 0;
-    saldoNuevo = Math.max(0, saldoAnt + interes - pagoNum);
-    numRecibo = db.siguienteReciboMotos();
-  } else if (tipo === 'mora') {
-    pct = parseFloat(porcentaje) || 0;
-    interes = Math.round(saldoAnt * (pct / 100));
-    saldoNuevo = saldoAnt + interes;
-  }
-  // tipo === 'sin_pago' -> no cambia nada (valores por defecto ya seteados)
-
+  // Insertamos con valores de saldo provisorios; el recompute de abajo los deja bien.
   const r = db.run(
     `INSERT INTO motos_movimientos
-      (cliente_id, fecha, saldo_anterior, interes, pago, saldo_nuevo, abono, tipo, porcentaje, numero_recibo, notas)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [clienteId, fecha, saldoAnt, interes, pagoNum, saldoNuevo, esAbono, tipo, pct, numRecibo, notas||'']
+      (cliente_id, fecha, saldo_anterior, interes, pago, saldo_nuevo, abono, tipo, porcentaje, mora_aplicada, cuotas_mora, mora_desde, mora_hasta, numero_recibo, notas)
+     VALUES (?,?,0,0,?,0,?,?,?,?,?,?,?,?,?)`,
+    [clienteId, fecha, pagoNum, esAbono, tipo, pct, aplicaMora ? 1 : 0, cantCuotas,
+     aplicaMora ? (moraDesde||'') : '', aplicaMora ? (moraHasta||'') : '', numRecibo, notas||'']
   );
 
-  // Recalcula todo el historial por si este movimiento se cargó con una fecha
-  // que no es la última cronológicamente (evita que el saldo mostrado quede mal).
+  // Recalcula todo el historial: aplica la fórmula de mora e ignora fechas fuera de orden.
   const saldoFinal = db.recomputeSaldosMoto(clienteId);
 
   res.json({ id: r.lastInsertRowid, numero_recibo: numRecibo, saldo_nuevo: saldoFinal });
 });
 
-// Editar un movimiento existente (fecha, monto, tipo, porcentaje, notas).
+// Editar un movimiento existente (fecha, monto, mora, notas).
 // Recalcula todo el historial del cliente después del cambio.
 router.put('/clientes/:id/movimientos/:movId', (req, res) => {
   const clienteId = parseInt(req.params.id);
@@ -276,19 +270,23 @@ router.put('/clientes/:id/movimientos/:movId', (req, res) => {
   const mov = db.get('SELECT * FROM motos_movimientos WHERE id=? AND cliente_id=?', [movId, clienteId]);
   if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
 
-  let { fecha, pago, tipo, porcentaje, notas } = req.body;
+  let { fecha, pago, tipo, moraAplicada, porcentaje, moraDesde, moraHasta, notas } = req.body;
   if (!tipo) tipo = mov.tipo;
-  const pagoNum = tipo === 'pago' ? (parseFloat(pago) || 0) : 0;
-  const pct     = tipo === 'mora' ? (parseFloat(porcentaje) || 0) : 0;
-  const esAbono = tipo === 'pago' ? 1 : 0;
+  const pagoNum    = tipo === 'pago' ? (parseFloat(pago) || 0) : 0;
+  const esAbono    = tipo === 'pago' ? 1 : 0;
+  const aplicaMora = !!moraAplicada;
+  const pct        = aplicaMora ? (parseFloat(porcentaje) || 0) : 0;
+  const cantCuotas = aplicaMora ? db.mesesEntreFechas(moraDesde, moraHasta) : 0;
   // Si pasa a ser un pago y no tenía recibo asignado todavía, le damos uno.
   const numRecibo = (tipo === 'pago' && !mov.numero_recibo) ? db.siguienteReciboMotos() : mov.numero_recibo;
 
   db.run(
     `UPDATE motos_movimientos
-     SET fecha=?, pago=?, tipo=?, porcentaje=?, abono=?, numero_recibo=?, notas=?
+     SET fecha=?, pago=?, tipo=?, porcentaje=?, mora_aplicada=?, cuotas_mora=?, mora_desde=?, mora_hasta=?, abono=?, numero_recibo=?, notas=?
      WHERE id=?`,
-    [fecha || mov.fecha, pagoNum, tipo, pct, esAbono, numRecibo, notas ?? mov.notas, movId]
+    [fecha || mov.fecha, pagoNum, tipo, pct, aplicaMora ? 1 : 0, cantCuotas,
+     aplicaMora ? (moraDesde||'') : '', aplicaMora ? (moraHasta||'') : '',
+     esAbono, numRecibo, notas ?? mov.notas, movId]
   );
 
   const saldoFinal = db.recomputeSaldosMoto(clienteId);
