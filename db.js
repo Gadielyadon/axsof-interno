@@ -53,6 +53,35 @@ async function init() {
   `);
   migrarColumnasMotos();
 
+  // ── MOTOS (cuota fija): cronograma real de cuotas, una fila por cuota
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS motos_cuotas (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_id    INTEGER NOT NULL REFERENCES motos_clientes(id),
+      numero        INTEGER NOT NULL,
+      vencimiento   TEXT    NOT NULL,
+      monto         REAL    NOT NULL,
+      pagado        REAL    NOT NULL DEFAULT 0,
+      mora_override REAL    DEFAULT NULL,
+      creado_en     TEXT    DEFAULT (datetime('now'))
+    );
+  `);
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS motos_cuota_movimientos (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      cuota_id    INTEGER NOT NULL REFERENCES motos_cuotas(id),
+      cliente_id  INTEGER NOT NULL REFERENCES motos_clientes(id),
+      fecha       TEXT    NOT NULL,
+      tipo        TEXT    NOT NULL,
+      monto       REAL    NOT NULL DEFAULT 0,
+      porcentaje  REAL    DEFAULT 0,
+      medio_pago  TEXT    DEFAULT '',
+      notas       TEXT    DEFAULT '',
+      creado_en   TEXT    DEFAULT (datetime('now'))
+    );
+  `);
+  save();
+
   // ── SISTEMAS: clientes con cuota fija mensual (sin cálculo de interés)
   _db.run(`
     CREATE TABLE IF NOT EXISTS sistemas_clientes (
@@ -349,9 +378,164 @@ function recomputeSaldosMoto(clienteId) {
   return saldo;
 }
 
+// ═══ CRONOGRAMA DE CUOTAS (nuevo modelo, solo para modalidad='cuotas') ═══
+
+// Suma N meses a una fecha "YYYY-MM-DD" y devuelve "YYYY-MM-DD".
+function sumarMeses(fechaStr, n) {
+  const [y, m, d] = fechaStr.split('-').map(Number);
+  const dt = new Date(y, (m - 1) + n, d);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+// Devuelve las cuotas de un cliente con estado + mora (automática o ajustada
+// a mano) calculados, junto con su detalle de movimientos.
+function listarCuotasMoto(clienteId) {
+  const cliente = get('SELECT * FROM motos_clientes WHERE id=?', [clienteId]);
+  const cuotas = query('SELECT * FROM motos_cuotas WHERE cliente_id=? ORDER BY numero ASC', [clienteId]);
+  const hoy = new Date().toISOString().split('T')[0];
+  return cuotas.map(c => {
+    const movs = query(
+      'SELECT * FROM motos_cuota_movimientos WHERE cuota_id=? ORDER BY fecha ASC, id ASC',
+      [c.id]
+    );
+    let estado = 'pendiente';
+    if (c.pagado >= c.monto) estado = 'pagada';
+    else if (c.pagado > 0) estado = 'parcial';
+    else if (c.vencimiento < hoy) estado = 'vencida';
+
+    // Mora automática: se calcula sola según los meses de atraso desde el
+    // vencimiento hasta hoy, salvo que el usuario haya fijado un valor manual.
+    let meses_atraso = 0;
+    if (estado !== 'pagada' && c.vencimiento < hoy) meses_atraso = mesesEntreFechas(c.vencimiento, hoy);
+    const mora_automatica = (cliente && meses_atraso > 0)
+      ? Math.round(c.monto * ((cliente.mora_porcentaje || 6) / 100) * meses_atraso)
+      : 0;
+    const tiene_ajuste_manual = c.mora_override !== null && c.mora_override !== undefined;
+    const mora = tiene_ajuste_manual ? c.mora_override : mora_automatica;
+
+    return { ...c, estado, movimientos: movs, meses_atraso, mora_automatica, mora, tiene_ajuste_manual };
+  });
+}
+
+// Genera (o regenera desde cero) el cronograma de cuotas de un cliente.
+// Borra cuotas y movimientos-de-cuota previos del cronograma nuevo (NO toca
+// el historial viejo de motos_movimientos, que queda aparte como referencia).
+function generarCronogramaMoto(clienteId) {
+  const cliente = get('SELECT * FROM motos_clientes WHERE id=?', [clienteId]);
+  if (!cliente || cliente.modalidad !== 'cuotas') return [];
+  const viejas = query('SELECT id FROM motos_cuotas WHERE cliente_id=?', [clienteId]);
+  viejas.forEach(c => _db.run('DELETE FROM motos_cuota_movimientos WHERE cuota_id=?', [c.id]));
+  _db.run('DELETE FROM motos_cuotas WHERE cliente_id=?', [clienteId]);
+  const total = cliente.total_cuotas || 0;
+  for (let n = 1; n <= total; n++) {
+    const venc = sumarMeses(cliente.fecha_inicio, n - 1);
+    _db.run(
+      'INSERT INTO motos_cuotas (cliente_id, numero, vencimiento, monto) VALUES (?,?,?,?)',
+      [clienteId, n, venc, cliente.cuota_fija]
+    );
+  }
+  save();
+  return query('SELECT * FROM motos_cuotas WHERE cliente_id=? ORDER BY numero ASC', [clienteId]);
+}
+
+// Registra un pago libre y lo va imputando en cascada a las cuotas más
+// antiguas que no estén 100% pagadas (FIFO), como se definió con el cliente.
+function registrarPagoCuotasMoto(clienteId, monto, fecha, notas, cuotaInicioId, medioPago) {
+  let restante = parseFloat(monto) || 0;
+  if (restante <= 0) return { aplicado: [] };
+  let cuotas = query(
+    'SELECT * FROM motos_cuotas WHERE cliente_id=? AND pagado < monto ORDER BY numero ASC',
+    [clienteId]
+  );
+  if (cuotaInicioId) {
+    // Si se especifica desde qué cuota arrancar, salteamos las anteriores a esa.
+    const idx = cuotas.findIndex(c => c.id === parseInt(cuotaInicioId));
+    if (idx > 0) cuotas = cuotas.slice(idx);
+  }
+  const aplicado = [];
+  for (const c of cuotas) {
+    if (restante <= 0) break;
+    const pendiente = c.monto - c.pagado;
+    const aAplicar = Math.min(pendiente, restante);
+    if (aAplicar <= 0) continue;
+    const nuevoPagado = c.pagado + aAplicar;
+    _db.run('UPDATE motos_cuotas SET pagado=? WHERE id=?', [nuevoPagado, c.id]);
+    _db.run(
+      `INSERT INTO motos_cuota_movimientos (cuota_id, cliente_id, fecha, tipo, monto, medio_pago, notas)
+       VALUES (?,?,?,?,?,?,?)`,
+      [c.id, clienteId, fecha, 'pago', aAplicar, medioPago||'', notas || '']
+    );
+    aplicado.push({ cuota_id: c.id, numero: c.numero, monto: aAplicar });
+    restante -= aAplicar;
+  }
+  save();
+  return { aplicado, sobrante: restante };
+}
+
+// Fija (o quita) un ajuste manual de mora para UNA cuota puntual, que
+// reemplaza al cálculo automático mientras esté activo.
+function ajustarMoraManualCuotaMoto(cuotaId, monto, fecha, notas) {
+  const cuota = get('SELECT * FROM motos_cuotas WHERE id=?', [cuotaId]);
+  if (!cuota) return null;
+  const val = (monto === null || monto === '') ? null : Math.round(parseFloat(monto) || 0);
+  _db.run('UPDATE motos_cuotas SET mora_override=? WHERE id=?', [val, cuotaId]);
+  _db.run(
+    `INSERT INTO motos_cuota_movimientos (cuota_id, cliente_id, fecha, tipo, monto, notas)
+     VALUES (?,?,?,?,?,?)`,
+    [cuotaId, cuota.cliente_id, fecha, 'mora_ajuste', val||0,
+     (val===null ? 'Vuelve a cálculo automático. ' : 'Mora fijada manualmente. ') + (notas||'')]
+  );
+  save();
+  return val;
+}
+
+// Deshace un movimiento de cuota (pago) y recalcula la cuota afectada.
+function eliminarMovCuotaMoto(movId) {
+  const mov = get('SELECT * FROM motos_cuota_movimientos WHERE id=?', [movId]);
+  if (!mov) return false;
+  _db.run('DELETE FROM motos_cuota_movimientos WHERE id=?', [movId]);
+  if (mov.tipo === 'pago') {
+    _db.run('UPDATE motos_cuotas SET pagado = MAX(0, pagado - ?) WHERE id=?', [mov.monto, mov.cuota_id]);
+  }
+  save();
+  return true;
+}
+
+// Resumen agregado del cronograma para las tarjetas de arriba.
+function resumenCronogramaMoto(clienteId) {
+  const cuotas = listarCuotasMoto(clienteId);
+  const capitalPendiente = cuotas.reduce((s, c) => s + Math.max(0, c.monto - c.pagado), 0);
+  const moraTotal = cuotas.reduce((s, c) => s + (c.mora || 0), 0);
+  const proxVencimiento = cuotas.find(c => c.estado !== 'pagada');
+  const ultimoPago = get(
+    `SELECT m.monto, m.fecha FROM motos_cuota_movimientos m
+     JOIN motos_cuotas c ON c.id = m.cuota_id
+     WHERE c.cliente_id=? AND m.tipo='pago' ORDER BY m.fecha DESC, m.id DESC LIMIT 1`,
+    [clienteId]
+  );
+  return {
+    total_cuotas: cuotas.length,
+    cuotas_completas:  cuotas.filter(c => c.estado === 'pagada').length,
+    cuotas_parciales:  cuotas.filter(c => c.estado === 'parcial').length,
+    cuotas_vencidas:   cuotas.filter(c => c.estado === 'vencida').length,
+    cuotas_pendientes: cuotas.filter(c => c.estado === 'pendiente').length,
+    capital_pendiente: capitalPendiente,
+    mora_total: moraTotal,
+    total_a_pagar: capitalPendiente + moraTotal,
+    proximo_vencimiento: proxVencimiento ? proxVencimiento.vencimiento : null,
+    ultimo_pago: ultimoPago || null,
+    tiene_cronograma: cuotas.length > 0
+  };
+}
+
 module.exports = {
   init, run, get, query, save, hacerBackup,
   siguienteReciboMotos, siguienteReciboSistemas, siguientePresupuesto,
   saldoActualMoto, calcularProximoInteresMoto, cuotasAtrasadasMoto,
-  recomputeSaldosMoto, mesesEntreFechas
+  recomputeSaldosMoto, mesesEntreFechas,
+  generarCronogramaMoto, listarCuotasMoto, registrarPagoCuotasMoto,
+  ajustarMoraManualCuotaMoto, eliminarMovCuotaMoto, resumenCronogramaMoto
 };

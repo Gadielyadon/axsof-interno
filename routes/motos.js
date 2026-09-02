@@ -166,7 +166,17 @@ router.get('/clientes', (req, res) => {
   `);
   clientes.forEach(c => {
     if (c.saldo_actual === null || c.saldo_actual === undefined) c.saldo_actual = c.saldo_inicial;
-    c.cuotas_atrasadas = db.cuotasAtrasadasMoto(c);
+    if (c.modalidad === 'cuotas') {
+      const r = db.resumenCronogramaMoto(c.id);
+      if (r.tiene_cronograma) {
+        c.saldo_actual = r.capital_pendiente + r.mora_total;
+        c.cuotas_atrasadas = r.cuotas_vencidas + r.cuotas_parciales;
+      } else {
+        c.cuotas_atrasadas = db.cuotasAtrasadasMoto(c);
+      }
+    } else {
+      c.cuotas_atrasadas = 0;
+    }
   });
   res.json(clientes);
 });
@@ -175,6 +185,10 @@ router.get('/clientes/:id', (req, res) => {
   const c = db.get('SELECT * FROM motos_clientes WHERE id=?', [req.params.id]);
   if (!c) return res.status(404).json({ error: 'No encontrado' });
   c.saldo_actual = db.saldoActualMoto(c.id);
+  if (c.modalidad === 'cuotas') {
+    const r = db.resumenCronogramaMoto(c.id);
+    if (r.tiene_cronograma) c.saldo_actual = r.capital_pendiente + r.mora_total;
+  }
   c.cuotas_atrasadas = db.cuotasAtrasadasMoto(c);
   res.json(c);
 });
@@ -194,6 +208,8 @@ router.post('/clientes', (req, res) => {
      modalidad||'interes', parseFloat(cuota_fija)||0, parseInt(total_cuotas)||0,
      observaciones||'', fecha_inicio, parseFloat(mora_porcentaje)||6]
   );
+  // Si es cuota fija, generamos el cronograma de cuotas de una.
+  if (modalidad === 'cuotas') db.generarCronogramaMoto(r.lastInsertRowid);
   res.json({ id: r.lastInsertRowid });
 });
 
@@ -216,12 +232,59 @@ router.put('/clientes/:id', (req, res) => {
 });
 
 router.delete('/clientes/:id', (req, res) => {
-  db.run('DELETE FROM motos_movimientos WHERE cliente_id=?', [req.params.id]);
-  db.run('DELETE FROM motos_clientes WHERE id=?', [req.params.id]);
+  const cid = req.params.id;
+  const cuotas = db.query('SELECT id FROM motos_cuotas WHERE cliente_id=?', [cid]);
+  cuotas.forEach(c => db.run('DELETE FROM motos_cuota_movimientos WHERE cuota_id=?', [c.id]));
+  db.run('DELETE FROM motos_cuotas WHERE cliente_id=?', [cid]);
+  db.run('DELETE FROM motos_movimientos WHERE cliente_id=?', [cid]);
+  db.run('DELETE FROM motos_clientes WHERE id=?', [cid]);
   res.json({ ok: true });
 });
 
-// ── MOVIMIENTOS ───────────────────────────────────────────────────
+// ── CRONOGRAMA DE CUOTAS (modalidad='cuotas') ──────────────────────
+
+// Genera o regenera desde cero el cronograma de un cliente.
+router.post('/clientes/:id/cronograma', (req, res) => {
+  const cliente = db.get('SELECT * FROM motos_clientes WHERE id=?', [req.params.id]);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+  if (cliente.modalidad !== 'cuotas') return res.status(400).json({ error: 'Solo aplica a clientes de cuota fija' });
+  const cuotas = db.generarCronogramaMoto(cliente.id);
+  res.json({ ok: true, cuotas: cuotas.length });
+});
+
+router.get('/clientes/:id/cuotas', (req, res) => {
+  res.json({
+    cuotas: db.listarCuotasMoto(req.params.id),
+    resumen: db.resumenCronogramaMoto(req.params.id)
+  });
+});
+
+// Registrar un pago libre (se imputa en cascada a las cuotas más antiguas pendientes).
+router.post('/clientes/:id/cuotas/pago', (req, res) => {
+  const { monto, fecha, notas, cuotaInicioId, medioPago } = req.body;
+  if (!fecha) return res.status(400).json({ error: 'Fecha requerida' });
+  const resultado = db.registrarPagoCuotasMoto(req.params.id, monto, fecha, notas, cuotaInicioId, medioPago);
+  res.json({ ok: true, ...resultado, resumen: db.resumenCronogramaMoto(req.params.id) });
+});
+
+// Fija (o quita, con monto=null) un ajuste manual de mora para una cuota puntual.
+// Mientras no haya ajuste, la mora se calcula sola según los meses de atraso.
+router.post('/clientes/:id/cuotas/:cuotaId/mora', (req, res) => {
+  const { monto, fecha, notas } = req.body;
+  if (!fecha) return res.status(400).json({ error: 'Fecha requerida' });
+  const val = db.ajustarMoraManualCuotaMoto(req.params.cuotaId, monto, fecha, notas);
+  if (val === null && monto !== null && monto !== '') return res.status(404).json({ error: 'Cuota no encontrada' });
+  res.json({ ok: true, monto: val, resumen: db.resumenCronogramaMoto(req.params.id) });
+});
+
+// Deshacer un movimiento puntual (pago) de una cuota.
+router.delete('/clientes/:id/cuotas/movimientos/:movId', (req, res) => {
+  const ok = db.eliminarMovCuotaMoto(req.params.movId);
+  if (!ok) return res.status(404).json({ error: 'Movimiento no encontrado' });
+  res.json({ ok: true, resumen: db.resumenCronogramaMoto(req.params.id) });
+});
+
+// ── MOVIMIENTOS (historial anterior, modalidad='interes' o legado) ─
 
 router.get('/clientes/:id/movimientos', (req, res) => {
   const movs = db.query(

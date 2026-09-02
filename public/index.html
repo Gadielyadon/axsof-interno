@@ -127,14 +127,37 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" style="vertical-align:-2px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           Eliminar cliente
         </button>
-        <button class="btn-primary" onclick="abrirNuevoMovMoto()">
+        <button class="btn-primary" id="btn-nuevo-mov-moto" onclick="accionNuevoMovMoto()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Nuevo movimiento
+          <span id="btn-nuevo-mov-moto-txt">Nuevo movimiento</span>
         </button>
       </div>
       <div class="cuenta-resumen" id="moto-cuenta-resumen"></div>
-      <div class="section-title">Historial de movimientos</div>
-      <div class="table-wrap">
+
+      <!-- CRONOGRAMA DE CUOTAS (solo modalidad='cuotas') -->
+      <div id="cronograma-moto-wrap" style="display:none">
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Cronograma de cuotas</span>
+          <button class="btn-secondary btn-sm" id="btn-cronograma-generar" onclick="generarCronogramaMotoActual()"></button>
+        </div>
+        <div class="table-wrap" id="cronograma-table-wrap" style="display:none">
+          <table class="mov-table">
+            <thead><tr><th>N°</th><th>Vencimiento</th><th>Monto</th><th>Pagado</th><th>Mora</th><th>Estado</th><th></th></tr></thead>
+            <tbody id="cronograma-tbody"></tbody>
+          </table>
+        </div>
+        <div id="cronograma-vacio" style="display:none;color:var(--text-muted);font-size:.9rem;padding:1rem 0">
+          Todavía no hay un cronograma generado para este cliente. Tocá "Generar cronograma" para crear las cuotas según la fecha de inicio, el monto de cuota y la cantidad de cuotas cargadas.
+        </div>
+      </div>
+
+      <div id="historial-anterior-header" class="section-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" onclick="toggleHistorialAnteriorMoto()">
+        <span id="historial-anterior-titulo">Historial de movimientos</span>
+        <span id="historial-anterior-chevron" style="display:none;transition:transform .15s">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="6 9 12 15 18 9"/></svg>
+        </span>
+      </div>
+      <div class="table-wrap" id="historial-anterior-tablewrap">
         <table class="mov-table">
           <thead><tr><th>Fecha</th><th>Estado</th><th>Saldo ant.</th><th>Interés</th><th>Abono</th><th>Saldo nuevo</th><th>Recibo</th><th></th></tr></thead>
           <tbody id="moto-mov-tbody"></tbody>
@@ -282,6 +305,95 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="cerrarModal('modal-mov-moto')">Cancelar</button>
       <button class="btn-primary" onclick="confirmarMovMoto()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Registrar pago (modalidad cuotas) — se imputa en cascada a las cuotas más viejas -->
+<div class="modal-overlay" id="modal-pago-cuota" onclick="if(event.target===this)cerrarModal('modal-pago-cuota')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>💰 Registrar pago</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-pago-cuota')">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+        El monto se aplica primero a la cuota pendiente más antigua. Si sobra, pasa solo a la siguiente.
+      </div>
+      <div class="form-group" style="margin-bottom:1rem">
+        <label>Monto recibido ($)</label>
+        <input type="text" id="pc-monto" placeholder="0" inputmode="numeric" oninput="fmtInput(this)">
+      </div>
+      <div class="form-group" style="margin-bottom:1rem">
+        <label>Medio de pago</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+          <label style="display:flex;align-items:center;gap:.4rem;padding:.6rem .8rem;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:.9rem">
+            <input type="radio" name="pc-medio" value="Efectivo" checked> Efectivo
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;padding:.6rem .8rem;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:.9rem">
+            <input type="radio" name="pc-medio" value="Transferencia"> Transferencia
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;padding:.6rem .8rem;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:.9rem">
+            <input type="radio" name="pc-medio" value="Mercado Pago"> Mercado Pago
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;padding:.6rem .8rem;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:.9rem">
+            <input type="radio" name="pc-medio" value="Otro"> Otro
+          </label>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:1rem">
+        <label>Aplicar a partir de la cuota (opcional)</label>
+        <select id="pc-cuota-inicio">
+          <option value="">La más antigua pendiente (por defecto)</option>
+        </select>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Fecha</label>
+          <input type="date" id="pc-fecha">
+        </div>
+        <div class="form-group">
+          <label>Observación (opcional)</label>
+          <input type="text" id="pc-notas" placeholder="Ej: pago parcial cuota N°1">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-pago-cuota')">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarPagoCuota()">Registrar pago</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Ajustar mora de una cuota (por defecto se calcula sola) -->
+<div class="modal-overlay" id="modal-mora-cuota" onclick="if(event.target===this)cerrarModal('modal-mora-cuota')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>⚠️ Ajustar mora</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-mora-cuota')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="mc-info" style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem;line-height:1.5"></div>
+      <div class="form-group" style="margin-bottom:.5rem">
+        <label>Monto de mora para esta cuota ($)</label>
+        <input type="number" id="mc-porcentaje" min="0" step="1" oninput="actualizarPreviewMoraCuota()">
+      </div>
+      <button class="btn-secondary btn-sm" id="btn-mora-automatica" style="display:none;margin-bottom:1rem" onclick="volverMoraAutomatica()">↺ Volver al cálculo automático</button>
+      <div id="mc-preview" style="margin-bottom:1rem;font-size:.85rem;color:var(--orange);font-weight:600"></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Fecha</label>
+          <input type="date" id="mc-fecha">
+        </div>
+        <div class="form-group">
+          <label>Notas (opcional)</label>
+          <input type="text" id="mc-notas" placeholder="Opcional">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-mora-cuota')">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarMoraCuota()">Guardar</button>
     </div>
   </div>
 </div>

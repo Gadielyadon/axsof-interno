@@ -152,6 +152,7 @@ let _motoVista = 'lista';
 let _motosAll  = [];
 let _motoActual = null;
 let _motoMovs   = [];
+let _motoCronograma = { cuotas: [], resumen: {} };
 
 async function cargarListaMotos() {
   _motoVista = 'lista';
@@ -198,10 +199,20 @@ function filtrarMotos() {
 async function abrirCuentaMoto(id) {
   _motoActual = await api(`/api/motos/clientes/${id}`);
   _motoMovs   = await api(`/api/motos/clientes/${id}/movimientos`);
+  if (_motoActual.modalidad === 'cuotas') {
+    _motoCronograma = await api(`/api/motos/clientes/${id}/cuotas`);
+  } else {
+    _motoCronograma = { cuotas: [], resumen: {} };
+  }
   _motoVista  = 'cuenta';
   document.getElementById('vista-lista-motos').style.display = 'none';
   document.getElementById('vista-cuenta-motos').style.display = '';
   renderCuentaMoto();
+}
+
+function accionNuevoMovMoto() {
+  if (_motoActual.modalidad === 'cuotas') abrirPagoCuota();
+  else abrirNuevoMovMoto();
 }
 
 function renderCuentaMoto() {
@@ -209,24 +220,60 @@ function renderCuentaMoto() {
   document.getElementById('moto-cuenta-nombre').textContent = c.nombre;
   document.getElementById('moto-cuenta-sub').textContent = c.moto_descripcion || '';
 
-  const saldo = c.saldo_actual || 0;
   const esCuotas = c.modalidad === 'cuotas';
-  const totalAbonos = _motoMovs.filter(m=>m.abono).length;
+  const r = _motoCronograma.resumen || {};
+  const saldo = esCuotas
+    ? (r.tiene_cronograma ? (r.capital_pendiente||0) + (r.mora_total||0) : (c.saldo_actual||0))
+    : (c.saldo_actual || 0);
 
-  document.getElementById('moto-cuenta-resumen').innerHTML = `
+  document.getElementById('btn-nuevo-mov-moto-txt').textContent = esCuotas ? 'Registrar pago' : 'Nuevo movimiento';
+
+  document.getElementById('moto-cuenta-resumen').innerHTML = esCuotas ? `
+    <div class="resumen-item"><div class="r-lbl">Capital pendiente</div><div class="r-val rojo">${fmt(r.capital_pendiente||0)}</div></div>
+    <div class="resumen-item"><div class="r-lbl">Mora acumulada</div><div class="r-val monto-naranja">${fmt(r.mora_total||0)}</div></div>
+    <div class="resumen-item"><div class="r-lbl">Total a pagar</div><div class="r-val" style="font-weight:800">${fmt(r.total_a_pagar||0)}</div></div>
+    <div class="resumen-item"><div class="r-lbl">Próx. vencimiento</div><div class="r-val" style="font-size:.9rem">${r.proximo_vencimiento?fmtFecha(r.proximo_vencimiento):'—'}</div></div>
+    <div class="resumen-item"><div class="r-lbl">Cuotas</div><div class="r-val" style="font-size:.85rem;line-height:1.5">
+      ${r.cuotas_completas||0} pagada${r.cuotas_completas!=1?'s':''} · ${r.cuotas_parciales||0} parcial${r.cuotas_parciales!=1?'es':''} · ${r.cuotas_vencidas||0} vencida${r.cuotas_vencidas!=1?'s':''} · ${r.cuotas_pendientes||0} pendiente${r.cuotas_pendientes!=1?'s':''}
+    </div></div>
+    <div class="resumen-item"><div class="r-lbl">Último pago</div><div class="r-val" style="font-size:.9rem">${r.ultimo_pago ? fmt(r.ultimo_pago.monto)+' · '+fmtFecha(r.ultimo_pago.fecha) : '—'}</div></div>
+    <div class="resumen-item"><div class="r-lbl">Cuota fija</div><div class="r-val">${fmt(c.cuota_fija)}</div></div>
+    <div class="resumen-item"><div class="r-lbl">% mora mensual</div><div class="r-val">${c.mora_porcentaje||6}%</div></div>
+    <div class="resumen-item"><div class="r-lbl">Cliente desde</div><div class="r-val" style="font-size:.9rem">${c.creado_en ? fmtFecha(c.creado_en.split(' ')[0]) : '—'}</div></div>
+    ${c.observaciones ? `<div class="resumen-item" style="grid-column:1/-1"><div class="r-lbl">Observaciones</div><div class="r-val" style="font-size:.88rem;font-weight:500">${c.observaciones}</div></div>` : ''}
+  ` : `
     <div class="resumen-item"><div class="r-lbl">Saldo actual</div><div class="r-val rojo">${fmt(saldo)}</div></div>
     <div class="resumen-item"><div class="r-lbl">Saldo inicial</div><div class="r-val">${fmt(c.saldo_inicial)}</div></div>
     <div class="resumen-item"><div class="r-lbl">Cliente desde</div><div class="r-val" style="font-size:.9rem">${c.creado_en ? fmtFecha(c.creado_en.split(' ')[0]) : '—'}</div></div>
-    ${esCuotas
-      ? `<div class="resumen-item"><div class="r-lbl">Cuota fija</div><div class="r-val">${fmt(c.cuota_fija)}</div></div>
-         <div class="resumen-item"><div class="r-lbl">Cuotas abonadas</div><div class="r-val">${totalAbonos} / ${c.total_cuotas}</div></div>
-         <div class="resumen-item"><div class="r-lbl">Cuotas atrasadas</div><div class="r-val ${c.cuotas_atrasadas>0?'monto-rojo':''}">${c.cuotas_atrasadas>0 ? '⚠️ '+c.cuotas_atrasadas : '0'}</div></div>
-         <div class="resumen-item"><div class="r-lbl">% mora mensual</div><div class="r-val monto-naranja">${c.mora_porcentaje||6}%</div></div>`
-      : `<div class="resumen-item"><div class="r-lbl">Tasa mensual</div><div class="r-val">${c.tasa_mensual}%</div></div>
-         <div class="resumen-item"><div class="r-lbl">Próximo interés</div><div class="r-val monto-naranja">${fmt(Math.round(saldo*(c.tasa_mensual/100)))}</div></div>`
-    }
+    <div class="resumen-item"><div class="r-lbl">Tasa mensual</div><div class="r-val">${c.tasa_mensual}%</div></div>
+    <div class="resumen-item"><div class="r-lbl">Próximo interés</div><div class="r-val monto-naranja">${fmt(Math.round(saldo*(c.tasa_mensual/100)))}</div></div>
     ${c.observaciones ? `<div class="resumen-item" style="grid-column:1/-1"><div class="r-lbl">Observaciones</div><div class="r-val" style="font-size:.88rem;font-weight:500">${c.observaciones}</div></div>` : ''}
   `;
+
+  // ── Cronograma de cuotas (solo modalidad='cuotas') ──
+  document.getElementById('cronograma-moto-wrap').style.display = esCuotas ? '' : 'none';
+  if (esCuotas) {
+    const tieneCrono = _motoCronograma.cuotas.length > 0;
+    const btnGen = document.getElementById('btn-cronograma-generar');
+    btnGen.textContent = tieneCrono ? '🔄 Regenerar cronograma' : '+ Generar cronograma';
+    document.getElementById('cronograma-table-wrap').style.display = tieneCrono ? '' : 'none';
+    document.getElementById('cronograma-vacio').style.display = tieneCrono ? 'none' : '';
+    if (tieneCrono) renderCronogramaTabla();
+  }
+
+  // ── Historial anterior: se etiqueta y colapsa distinto según modalidad ──
+  const chevron = document.getElementById('historial-anterior-chevron');
+  const titulo  = document.getElementById('historial-anterior-titulo');
+  const tw      = document.getElementById('historial-anterior-tablewrap');
+  if (esCuotas) {
+    titulo.textContent = 'Historial anterior (registro previo al cronograma)';
+    chevron.style.display = '';
+    tw.style.display = 'none'; // colapsado por defecto
+  } else {
+    titulo.textContent = 'Historial de movimientos';
+    chevron.style.display = 'none';
+    tw.style.display = '';
+  }
 
   const tbody = document.getElementById('moto-mov-tbody');
   if (!_motoMovs.length) {
@@ -310,6 +357,188 @@ function toggleDesgloseMora(movId) {
   const abierto = fila.style.display !== 'none';
   fila.style.display = abierto ? 'none' : '';
   btn.querySelector('svg').style.transform = abierto ? '' : 'rotate(180deg)';
+}
+
+function toggleHistorialAnteriorMoto() {
+  if (_motoActual.modalidad !== 'cuotas') return; // en interés siempre queda visible
+  const tw = document.getElementById('historial-anterior-tablewrap');
+  const chevron = document.getElementById('historial-anterior-chevron');
+  const abierto = tw.style.display !== 'none';
+  tw.style.display = abierto ? 'none' : '';
+  chevron.style.transform = abierto ? '' : 'rotate(180deg)';
+}
+
+// ═══ CRONOGRAMA DE CUOTAS ═══════════════════════════════════════════
+
+async function generarCronogramaMotoActual() {
+  const tieneCrono = _motoCronograma.cuotas.length > 0;
+  if (tieneCrono) {
+    if (!confirm('Esto vuelve a armar el cronograma desde cero: se pierden los pagos y moras ya cargados en las cuotas actuales (el historial anterior no se toca). ¿Continuar?')) return;
+  }
+  try {
+    await api(`/api/motos/clientes/${_motoActual.id}/cronograma`, { method:'POST' });
+    _motoCronograma = await api(`/api/motos/clientes/${_motoActual.id}/cuotas`);
+    toast('Cronograma generado');
+    renderCuentaMoto();
+  } catch(e) { toast(e.message,'err'); }
+}
+
+function renderCronogramaTabla() {
+  const tbody = document.getElementById('cronograma-tbody');
+  tbody.innerHTML = _motoCronograma.cuotas.map(cu => {
+    const badges = {
+      pagada:    `<span class="badge badge-green">✓ Pagada</span>`,
+      parcial:   `<span class="badge badge-orange">${fmt(cu.pagado)} de ${fmt(cu.monto)}</span>`,
+      vencida:   `<span class="badge badge-red">⚠️ Vencida</span>`,
+      pendiente: `<span class="badge" style="background:var(--surface2);color:var(--text-muted)">Pendiente</span>`
+    };
+    const badge = badges[cu.estado] || badges.pendiente;
+    const moraTxt = cu.mora
+      ? `${fmt(cu.mora)}${cu.tiene_ajuste_manual ? ' <span title="Ajustada a mano" style="font-size:.7em">✏️</span>' : ''}`
+      : '—';
+    const btnMora = cu.estado !== 'pagada'
+      ? `<button class="btn-accion-mov btn-editar-mov" onclick="abrirMoraCuota(${cu.id})" title="Ajustar mora">${ICON_ALERTA}</button>`
+      : '';
+    const btnDet = cu.movimientos.length
+      ? `<button class="btn-accion-mov btn-desglose-mov" onclick="toggleDesgloseCuota(${cu.id})" title="Ver movimientos" id="btn-desglose-cuota-${cu.id}">${ICON_CHEVRON}</button>`
+      : '';
+    const filaPrincipal = `<tr>
+      <td>${cu.numero}</td>
+      <td>${fmtFecha(cu.vencimiento)}</td>
+      <td>${fmt(cu.monto)}</td>
+      <td class="monto-verde">${cu.pagado ? fmt(cu.pagado) : '—'}</td>
+      <td class="monto-naranja">${moraTxt}</td>
+      <td>${badge}</td>
+      <td style="white-space:nowrap">${btnDet}${btnMora}</td>
+    </tr>`;
+    const filaDet = cu.movimientos.length ? `<tr id="fila-desglose-cuota-${cu.id}" style="display:none">
+      <td colspan="7" style="padding:0;background:var(--surface2)">
+        <div style="padding:.75rem 1.25rem">
+          ${cu.movimientos.map(mv => {
+            const medioTxt = mv.medio_pago ? ` (${mv.medio_pago})` : '';
+            const label = mv.tipo==='pago' ? `💵 Pago${medioTxt}` : '✏️ Ajuste de mora';
+            return `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">
+              <span>${fmtFecha(mv.fecha)} — ${label}${mv.notas?' · '+mv.notas:''}</span>
+              <span style="display:flex;align-items:center;gap:.6rem">
+                <b class="${mv.tipo==='pago'?'monto-verde':'monto-naranja'}">${fmt(mv.monto)}</b>
+                ${mv.tipo==='pago' ? `<button class="btn-accion-mov btn-borrar-mov" style="width:24px;height:24px" onclick="eliminarMovCuota(${mv.id})" title="Deshacer">${ICON_TACHO}</button>` : ''}
+              </span>
+            </div>`;
+          }).join('')}
+        </div>
+      </td>
+    </tr>` : '';
+    return filaPrincipal + filaDet;
+  }).join('');
+}
+
+function toggleDesgloseCuota(cuotaId) {
+  const fila = document.getElementById(`fila-desglose-cuota-${cuotaId}`);
+  const btn  = document.getElementById(`btn-desglose-cuota-${cuotaId}`);
+  if (!fila) return;
+  const abierto = fila.style.display !== 'none';
+  fila.style.display = abierto ? 'none' : '';
+  btn.querySelector('svg').style.transform = abierto ? '' : 'rotate(180deg)';
+}
+
+async function eliminarMovCuota(movId) {
+  if (!confirm('¿Deshacer este movimiento de la cuota?')) return;
+  try {
+    await api(`/api/motos/clientes/${_motoActual.id}/cuotas/movimientos/${movId}`, { method:'DELETE' });
+    toast('Movimiento deshecho');
+    _motoCronograma = await api(`/api/motos/clientes/${_motoActual.id}/cuotas`);
+    renderCuentaMoto();
+  } catch(e) { toast(e.message,'err'); }
+}
+
+// ── Modal: registrar pago (cascada FIFO) ──
+function abrirPagoCuota() {
+  document.getElementById('pc-monto').value = '';
+  document.getElementById('pc-notas').value = '';
+  document.getElementById('pc-fecha').value = new Date().toISOString().split('T')[0];
+  document.querySelectorAll('input[name="pc-medio"]').forEach((r,i) => r.checked = i===0);
+  const sel = document.getElementById('pc-cuota-inicio');
+  const pendientes = _motoCronograma.cuotas.filter(c => c.estado !== 'pagada');
+  sel.innerHTML = '<option value="">La más antigua pendiente (por defecto)</option>' +
+    pendientes.map(c => `<option value="${c.id}">Cuota N°${c.numero} — vence ${fmtFecha(c.vencimiento)} — debe ${fmt(c.monto-c.pagado)}</option>`).join('');
+  abrirModal('modal-pago-cuota');
+}
+
+async function confirmarPagoCuota() {
+  const monto = getNumVal('pc-monto');
+  const fecha = document.getElementById('pc-fecha').value;
+  const notas = document.getElementById('pc-notas').value;
+  const cuotaInicioId = document.getElementById('pc-cuota-inicio').value || null;
+  const medioPago = document.querySelector('input[name="pc-medio"]:checked')?.value || '';
+  if (!monto) return toast('Ingresá el monto recibido', 'warn');
+  if (!fecha) return toast('Ingresá la fecha', 'warn');
+  try {
+    await api(`/api/motos/clientes/${_motoActual.id}/cuotas/pago`, {
+      method:'POST', body: JSON.stringify({ monto, fecha, notas, cuotaInicioId, medioPago })
+    });
+    toast('Pago registrado');
+    cerrarModal('modal-pago-cuota');
+    _motoCronograma = await api(`/api/motos/clientes/${_motoActual.id}/cuotas`);
+    renderCuentaMoto();
+  } catch(e) { toast(e.message,'err'); }
+}
+
+// ── Modal: ajustar mora de una cuota (por defecto se calcula sola) ──
+let _cuotaMoraActual = null;
+function abrirMoraCuota(cuotaId) {
+  const cu = _motoCronograma.cuotas.find(c => c.id === cuotaId);
+  if (!cu) return;
+  _cuotaMoraActual = cu;
+  document.getElementById('mc-info').innerHTML = `
+    Cuota N°${cu.numero} — vence ${fmtFecha(cu.vencimiento)}<br>
+    Debe: <b>${fmt(cu.monto-cu.pagado)}</b><br>
+    Mora calculada automáticamente (${cu.meses_atraso} mes${cu.meses_atraso!=1?'es':''} de atraso × ${_motoActual.mora_porcentaje||6}%): <b>${fmt(cu.mora_automatica)}</b>
+    ${cu.tiene_ajuste_manual ? `<br><span style="color:var(--orange)">✏️ Actualmente tiene un valor fijado a mano, no el automático.</span>` : ''}
+  `;
+  document.getElementById('mc-porcentaje').value = cu.mora || cu.mora_automatica || 0;
+  document.getElementById('mc-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('mc-notas').value = '';
+  document.getElementById('btn-mora-automatica').style.display = cu.tiene_ajuste_manual ? '' : 'none';
+  actualizarPreviewMoraCuota();
+  abrirModal('modal-mora-cuota');
+}
+
+function actualizarPreviewMoraCuota() {
+  const cu = _cuotaMoraActual;
+  if (!cu) return;
+  const monto = parseFloat(document.getElementById('mc-porcentaje').value) || 0;
+  document.getElementById('mc-preview').textContent = `Se fija la mora de esta cuota en ${fmt(monto)}`;
+}
+
+async function confirmarMoraCuota() {
+  const monto = parseFloat(document.getElementById('mc-porcentaje').value);
+  const fecha = document.getElementById('mc-fecha').value;
+  const notas = document.getElementById('mc-notas').value;
+  if (isNaN(monto) || monto < 0) return toast('Ingresá un monto válido', 'warn');
+  if (!fecha) return toast('Ingresá la fecha', 'warn');
+  try {
+    await api(`/api/motos/clientes/${_motoActual.id}/cuotas/${_cuotaMoraActual.id}/mora`, {
+      method:'POST', body: JSON.stringify({ monto, fecha, notas })
+    });
+    toast('Mora actualizada');
+    cerrarModal('modal-mora-cuota');
+    _motoCronograma = await api(`/api/motos/clientes/${_motoActual.id}/cuotas`);
+    renderCuentaMoto();
+  } catch(e) { toast(e.message,'err'); }
+}
+
+async function volverMoraAutomatica() {
+  const fecha = new Date().toISOString().split('T')[0];
+  try {
+    await api(`/api/motos/clientes/${_motoActual.id}/cuotas/${_cuotaMoraActual.id}/mora`, {
+      method:'POST', body: JSON.stringify({ monto: null, fecha, notas: 'Se restableció el cálculo automático' })
+    });
+    toast('Vuelve a calcularse automático');
+    cerrarModal('modal-mora-cuota');
+    _motoCronograma = await api(`/api/motos/clientes/${_motoActual.id}/cuotas`);
+    renderCuentaMoto();
+  } catch(e) { toast(e.message,'err'); }
 }
 
 function volverListaMotos() { cargarListaMotos(); }
