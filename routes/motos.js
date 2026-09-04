@@ -195,18 +195,19 @@ router.get('/clientes/:id', (req, res) => {
 
 router.post('/clientes', (req, res) => {
   const { nombre, telefono, dni, moto_descripcion, saldo_inicial, tasa_mensual,
-          modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio, mora_porcentaje } = req.body;
+          modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio, mora_porcentaje, dia_vencimiento } = req.body;
   if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
   if (!fecha_inicio) return res.status(400).json({ error: 'La fecha de inicio es obligatoria' });
   const r = db.run(
     `INSERT INTO motos_clientes
       (nombre, telefono, dni, moto_descripcion, saldo_inicial, tasa_mensual,
-       modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio, mora_porcentaje)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       modalidad, cuota_fija, total_cuotas, observaciones, fecha_inicio, mora_porcentaje, dia_vencimiento)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [nombre, telefono||'', dni||'', moto_descripcion||'',
      parseFloat(saldo_inicial)||0, parseFloat(tasa_mensual)||6,
      modalidad||'interes', parseFloat(cuota_fija)||0, parseInt(total_cuotas)||0,
-     observaciones||'', fecha_inicio, parseFloat(mora_porcentaje)||6]
+     observaciones||'', fecha_inicio, parseFloat(mora_porcentaje)||6,
+     dia_vencimiento ? parseInt(dia_vencimiento) : null]
   );
   // Si es cuota fija, generamos el cronograma de cuotas de una.
   if (modalidad === 'cuotas') db.generarCronogramaMoto(r.lastInsertRowid);
@@ -215,17 +216,18 @@ router.post('/clientes', (req, res) => {
 
 router.put('/clientes/:id', (req, res) => {
   const { nombre, telefono, dni, moto_descripcion, tasa_mensual,
-          modalidad, cuota_fija, total_cuotas, observaciones, estado, fecha_inicio, mora_porcentaje } = req.body;
+          modalidad, cuota_fija, total_cuotas, observaciones, estado, fecha_inicio, mora_porcentaje, dia_vencimiento } = req.body;
   if (!fecha_inicio) return res.status(400).json({ error: 'La fecha de inicio es obligatoria' });
   db.run(
     `UPDATE motos_clientes SET nombre=?, telefono=?, dni=?, moto_descripcion=?,
      tasa_mensual=?, modalidad=?, cuota_fija=?, total_cuotas=?, observaciones=?, estado=?,
-     fecha_inicio=?, mora_porcentaje=?
+     fecha_inicio=?, mora_porcentaje=?, dia_vencimiento=?
      WHERE id=?`,
     [nombre, telefono||'', dni||'', moto_descripcion||'',
      parseFloat(tasa_mensual)||6, modalidad||'interes',
      parseFloat(cuota_fija)||0, parseInt(total_cuotas)||0,
      observaciones||'', estado||'activo', fecha_inicio, parseFloat(mora_porcentaje)||6,
+     dia_vencimiento ? parseInt(dia_vencimiento) : null,
      req.params.id]
   );
   res.json({ ok: true });

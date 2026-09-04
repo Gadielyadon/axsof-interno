@@ -202,6 +202,9 @@ function migrarColumnasMotos() {
   if (!colsCli.includes('mora_porcentaje')) {
     _db.run("ALTER TABLE motos_clientes ADD COLUMN mora_porcentaje REAL DEFAULT 6");
   }
+  if (!colsCli.includes('dia_vencimiento')) {
+    _db.run("ALTER TABLE motos_clientes ADD COLUMN dia_vencimiento INTEGER DEFAULT NULL");
+  }
   save();
 }
 
@@ -380,13 +383,21 @@ function recomputeSaldosMoto(clienteId) {
 
 // ═══ CRONOGRAMA DE CUOTAS (nuevo modelo, solo para modalidad='cuotas') ═══
 
-// Suma N meses a una fecha "YYYY-MM-DD" y devuelve "YYYY-MM-DD".
-function sumarMeses(fechaStr, n) {
+// Calcula la fecha de vencimiento de la cuota N (n=0 para la primera),
+// contando meses desde fecha_inicio. Si se pasa diaVencimiento, ese es el
+// día del mes que se usa (en vez del día de la fecha de inicio), recortado
+// al último día válido del mes si ese día no existe (ej: 30 en febrero).
+function sumarMeses(fechaStr, n, diaVencimiento) {
   const [y, m, d] = fechaStr.split('-').map(Number);
-  const dt = new Date(y, (m - 1) + n, d);
-  const yy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getDate()).padStart(2, '0');
+  const totalMonthIndex = (m - 1) + n;
+  const year  = y + Math.floor(totalMonthIndex / 12);
+  const month = ((totalMonthIndex % 12) + 12) % 12; // 0-indexado
+  let dia = diaVencimiento || d;
+  const ultimoDiaDelMes = new Date(year, month + 1, 0).getDate();
+  if (dia > ultimoDiaDelMes) dia = ultimoDiaDelMes;
+  const yy = year;
+  const mm = String(month + 1).padStart(2, '0');
+  const dd = String(dia).padStart(2, '0');
   return `${yy}-${mm}-${dd}`;
 }
 
@@ -406,12 +417,12 @@ function listarCuotasMoto(clienteId) {
     else if (c.pagado > 0) estado = 'parcial';
     else if (c.vencimiento < hoy) estado = 'vencida';
 
-    // Mora automática: se calcula sola según los meses de atraso desde el
-    // vencimiento hasta hoy, salvo que el usuario haya fijado un valor manual.
+    // Mora automática: cada cuota vencida recibe UNA sola vez el % del
+    // cliente (no se multiplica por la cantidad de meses que lleve atrasada).
     let meses_atraso = 0;
     if (estado !== 'pagada' && c.vencimiento < hoy) meses_atraso = mesesEntreFechas(c.vencimiento, hoy);
     const mora_automatica = (cliente && meses_atraso > 0)
-      ? Math.round(c.monto * ((cliente.mora_porcentaje || 6) / 100) * meses_atraso)
+      ? Math.round(c.monto * ((cliente.mora_porcentaje || 6) / 100))
       : 0;
     const tiene_ajuste_manual = c.mora_override !== null && c.mora_override !== undefined;
     const mora = tiene_ajuste_manual ? c.mora_override : mora_automatica;
@@ -431,7 +442,7 @@ function generarCronogramaMoto(clienteId) {
   _db.run('DELETE FROM motos_cuotas WHERE cliente_id=?', [clienteId]);
   const total = cliente.total_cuotas || 0;
   for (let n = 1; n <= total; n++) {
-    const venc = sumarMeses(cliente.fecha_inicio, n - 1);
+    const venc = sumarMeses(cliente.fecha_inicio, n - 1, cliente.dia_vencimiento);
     _db.run(
       'INSERT INTO motos_cuotas (cliente_id, numero, vencimiento, monto) VALUES (?,?,?,?)',
       [clienteId, n, venc, cliente.cuota_fija]

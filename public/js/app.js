@@ -493,7 +493,7 @@ function abrirMoraCuota(cuotaId) {
   document.getElementById('mc-info').innerHTML = `
     Cuota N°${cu.numero} — vence ${fmtFecha(cu.vencimiento)}<br>
     Debe: <b>${fmt(cu.monto-cu.pagado)}</b><br>
-    Mora calculada automáticamente (${cu.meses_atraso} mes${cu.meses_atraso!=1?'es':''} de atraso × ${_motoActual.mora_porcentaje||6}%): <b>${fmt(cu.mora_automatica)}</b>
+    Mora calculada automáticamente (cuota vencida hace ${cu.meses_atraso} mes${cu.meses_atraso!=1?'es':''}, recargo fijo de ${_motoActual.mora_porcentaje||6}%): <b>${fmt(cu.mora_automatica)}</b>
     ${cu.tiene_ajuste_manual ? `<br><span style="color:var(--orange)">✏️ Actualmente tiene un valor fijado a mano, no el automático.</span>` : ''}
   `;
   document.getElementById('mc-porcentaje').value = cu.mora || cu.mora_automatica || 0;
@@ -703,6 +703,7 @@ function abrirNuevoMoto() {
   });
   document.getElementById('fm-tasa').value = '6';
   document.getElementById('fm-mora-pct').value = '6';
+  document.getElementById('fm-dia-vencimiento').value = '';
   document.getElementById('fm-modalidad').value = 'interes';
   document.getElementById('fm-fecha-inicio').value = new Date().toISOString().split('T')[0];
   document.getElementById('fm-id').value = '';
@@ -720,6 +721,7 @@ function editarMotoActual() {
   document.getElementById('fm-moto').value      = c.moto_descripcion||'';
   document.getElementById('fm-tasa').value      = c.tasa_mensual||6;
   document.getElementById('fm-mora-pct').value  = c.mora_porcentaje||6;
+  document.getElementById('fm-dia-vencimiento').value = c.dia_vencimiento||'';
   document.getElementById('fm-modalidad').value = c.modalidad||'interes';
   document.getElementById('fm-obs').value       = c.observaciones||'';
   document.getElementById('fm-fecha-inicio').value = c.fecha_inicio||'';
@@ -750,6 +752,7 @@ async function guardarClienteMoto() {
     moto_descripcion:document.getElementById('fm-moto').value.trim(),
     tasa_mensual:    parseFloat(document.getElementById('fm-tasa').value)||6,
     mora_porcentaje: parseFloat(document.getElementById('fm-mora-pct').value)||6,
+    dia_vencimiento: document.getElementById('fm-dia-vencimiento').value ? parseInt(document.getElementById('fm-dia-vencimiento').value) : null,
     modalidad:       document.getElementById('fm-modalidad').value,
     cuota_fija:      getNumVal('fm-cuota'),
     total_cuotas:    parseInt(document.getElementById('fm-total-cuotas').value)||0,
