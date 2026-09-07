@@ -51,7 +51,6 @@ async function init() {
       creado_en      TEXT    DEFAULT (datetime('now'))
     );
   `);
-  migrarColumnasMotos();
 
   // ── MOTOS (cuota fija): cronograma real de cuotas, una fila por cuota
   _db.run(`
@@ -80,7 +79,22 @@ async function init() {
       creado_en   TEXT    DEFAULT (datetime('now'))
     );
   `);
+  // Un pago puede repartirse en varias cuotas (cascada); esta tabla agrupa
+  // ese pago como UNA sola operación, para poder emitirle un solo recibo.
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS motos_pagos (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_id    INTEGER NOT NULL REFERENCES motos_clientes(id),
+      fecha         TEXT    NOT NULL,
+      monto         REAL    NOT NULL DEFAULT 0,
+      medio_pago    TEXT    DEFAULT '',
+      notas         TEXT    DEFAULT '',
+      numero_recibo TEXT    DEFAULT '',
+      creado_en     TEXT    DEFAULT (datetime('now'))
+    );
+  `);
   save();
+  migrarColumnasMotos();
 
   // ── SISTEMAS: clientes con cuota fija mensual (sin cálculo de interés)
   _db.run(`
@@ -204,6 +218,11 @@ function migrarColumnasMotos() {
   }
   if (!colsCli.includes('dia_vencimiento')) {
     _db.run("ALTER TABLE motos_clientes ADD COLUMN dia_vencimiento INTEGER DEFAULT NULL");
+  }
+  // Agrupar movimientos-de-cuota que pertenecen a un mismo pago (para el recibo)
+  const colsCuotaMov = query("PRAGMA table_info(motos_cuota_movimientos)").map(c => c.name);
+  if (!colsCuotaMov.includes('pago_id')) {
+    _db.run("ALTER TABLE motos_cuota_movimientos ADD COLUMN pago_id INTEGER DEFAULT NULL");
   }
   save();
 }
@@ -466,6 +485,16 @@ function registrarPagoCuotasMoto(clienteId, monto, fecha, notas, cuotaInicioId, 
     const idx = cuotas.findIndex(c => c.id === parseInt(cuotaInicioId));
     if (idx > 0) cuotas = cuotas.slice(idx);
   }
+  // Agrupamos todo bajo un único "pago" (con su propio recibo), aunque
+  // termine repartido en varias cuotas.
+  const numeroRecibo = siguienteReciboMotos();
+  const pagoR = run(
+    `INSERT INTO motos_pagos (cliente_id, fecha, monto, medio_pago, notas, numero_recibo)
+     VALUES (?,?,?,?,?,?)`,
+    [clienteId, fecha, restante, medioPago||'', notas||'', numeroRecibo]
+  );
+  const pagoId = pagoR.lastInsertRowid;
+
   const aplicado = [];
   for (const c of cuotas) {
     if (restante <= 0) break;
@@ -475,15 +504,15 @@ function registrarPagoCuotasMoto(clienteId, monto, fecha, notas, cuotaInicioId, 
     const nuevoPagado = c.pagado + aAplicar;
     _db.run('UPDATE motos_cuotas SET pagado=? WHERE id=?', [nuevoPagado, c.id]);
     _db.run(
-      `INSERT INTO motos_cuota_movimientos (cuota_id, cliente_id, fecha, tipo, monto, medio_pago, notas)
-       VALUES (?,?,?,?,?,?,?)`,
-      [c.id, clienteId, fecha, 'pago', aAplicar, medioPago||'', notas || '']
+      `INSERT INTO motos_cuota_movimientos (cuota_id, cliente_id, fecha, tipo, monto, medio_pago, notas, pago_id)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [c.id, clienteId, fecha, 'pago', aAplicar, medioPago||'', notas || '', pagoId]
     );
     aplicado.push({ cuota_id: c.id, numero: c.numero, monto: aAplicar });
     restante -= aAplicar;
   }
   save();
-  return { aplicado, sobrante: restante };
+  return { aplicado, sobrante: restante, pago_id: pagoId, numero_recibo: numeroRecibo };
 }
 
 // Fija (o quita) un ajuste manual de mora para UNA cuota puntual, que
@@ -522,9 +551,8 @@ function resumenCronogramaMoto(clienteId) {
   const moraTotal = cuotas.reduce((s, c) => s + (c.mora || 0), 0);
   const proxVencimiento = cuotas.find(c => c.estado !== 'pagada');
   const ultimoPago = get(
-    `SELECT m.monto, m.fecha FROM motos_cuota_movimientos m
-     JOIN motos_cuotas c ON c.id = m.cuota_id
-     WHERE c.cliente_id=? AND m.tipo='pago' ORDER BY m.fecha DESC, m.id DESC LIMIT 1`,
+    `SELECT monto, fecha, medio_pago FROM motos_pagos
+     WHERE cliente_id=? ORDER BY fecha DESC, id DESC LIMIT 1`,
     [clienteId]
   );
   return {

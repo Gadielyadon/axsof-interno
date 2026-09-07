@@ -258,6 +258,7 @@ function renderCuentaMoto() {
     btnGen.textContent = tieneCrono ? '🔄 Regenerar cronograma' : '+ Generar cronograma';
     document.getElementById('cronograma-table-wrap').style.display = tieneCrono ? '' : 'none';
     document.getElementById('cronograma-vacio').style.display = tieneCrono ? 'none' : '';
+    document.getElementById('btn-estado-cuenta').style.display = tieneCrono ? '' : 'none';
     if (tieneCrono) renderCronogramaTabla();
   }
 
@@ -370,6 +371,29 @@ function toggleHistorialAnteriorMoto() {
 
 // ═══ CRONOGRAMA DE CUOTAS ═══════════════════════════════════════════
 
+function abrirModalEstadoCuenta() {
+  const cont = document.getElementById('ec-lista');
+  cont.innerHTML = _motoCronograma.cuotas.map(cu => {
+    const marcado = (cu.estado === 'vencida' || cu.estado === 'parcial') ? 'checked' : '';
+    const badges = { pagada:'✓ Pagada', parcial:'Parcial', vencida:'Vencida', pendiente:'Pendiente' };
+    return `
+      <label style="display:flex;align-items:center;gap:.6rem;padding:.55rem .7rem;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:.88rem">
+        <input type="checkbox" class="ec-check" value="${cu.id}" ${marcado} onchange="actualizarLinkEstadoCuenta()" style="width:16px;height:16px;flex-shrink:0">
+        <span style="flex:1">Cuota N°${cu.numero} — vence ${fmtFecha(cu.vencimiento)}</span>
+        <span style="color:var(--text-muted)">${fmt(cu.monto)}</span>
+        <span style="font-size:.78rem;color:var(--text-muted);min-width:60px;text-align:right">${badges[cu.estado]}</span>
+      </label>`;
+  }).join('');
+  actualizarLinkEstadoCuenta();
+  abrirModal('modal-estado-cuenta');
+}
+
+function actualizarLinkEstadoCuenta() {
+  const ids = Array.from(document.querySelectorAll('.ec-check:checked')).map(el => el.value);
+  const btn = document.getElementById('btn-generar-estado-cuenta');
+  btn.href = `/api/motos/clientes/${_motoActual.id}/estado-cuenta${ids.length ? '?cuotas='+ids.join(',') : '?cuotas=0'}`;
+}
+
 async function generarCronogramaMotoActual() {
   const tieneCrono = _motoCronograma.cuotas.length > 0;
   if (tieneCrono) {
@@ -417,11 +441,15 @@ function renderCronogramaTabla() {
           ${cu.movimientos.map(mv => {
             const medioTxt = mv.medio_pago ? ` (${mv.medio_pago})` : '';
             const label = mv.tipo==='pago' ? `💵 Pago${medioTxt}` : '✏️ Ajuste de mora';
+            const btnRecibo = (mv.tipo==='pago' && mv.pago_id)
+              ? `<a href="/api/motos/pagos/${mv.pago_id}/recibo" target="_blank" class="btn-accion-mov btn-desglose-mov" style="width:24px;height:24px;text-decoration:none" title="Ver recibo">${ICON_DOC}</a>`
+              : '';
             return `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.85rem">
               <span>${fmtFecha(mv.fecha)} — ${label}${mv.notas?' · '+mv.notas:''}</span>
               <span style="display:flex;align-items:center;gap:.6rem">
                 <b class="${mv.tipo==='pago'?'monto-verde':'monto-naranja'}">${fmt(mv.monto)}</b>
+                ${btnRecibo}
                 ${mv.tipo==='pago' ? `<button class="btn-accion-mov btn-borrar-mov" style="width:24px;height:24px" onclick="eliminarMovCuota(${mv.id})" title="Deshacer">${ICON_TACHO}</button>` : ''}
               </span>
             </div>`;

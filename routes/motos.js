@@ -428,8 +428,9 @@ router.get('/recibo/:movId', (req, res) => {
   // Franja roja
   doc.rect(0, 0, W, 70).fill(ROJO);
   if (fs.existsSync(LOGO)) doc.image(LOGO, 18, 8, { height: 52 });
-  doc.fontSize(9).fillColor('rgba(255,255,255,.7)').font('Helvetica')
+  doc.fontSize(9).fillColor('white').fillOpacity(0.7).font('Helvetica')
      .text('RECIBO', 0, 16, { align: 'right', width: W - 18 });
+  doc.fillOpacity(1);
   doc.fontSize(20).fillColor('white').font('Helvetica-Bold')
      .text(`N° ${mov.numero_recibo}`, 0, 28, { align: 'right', width: W - 18 });
 
@@ -496,6 +497,230 @@ router.get('/recibo/:movId', (req, res) => {
      .text('Yadon Automotores — Catamarca', 0, yPie + 8, { align: 'center' })
      .text(`Fecha: ${fechaManual}`, 0, yPie + 20, { align: 'center' });
 
+  doc.end();
+});
+
+// ── RECIBO de un pago del cronograma (puede cubrir 1 o varias cuotas) ──
+router.get('/pagos/:pagoId/recibo', (req, res) => {
+  const pago = db.get('SELECT * FROM motos_pagos WHERE id=?', [req.params.pagoId]);
+  if (!pago) return res.status(404).json({ error: 'Pago no encontrado' });
+  const cliente = db.get('SELECT * FROM motos_clientes WHERE id=?', [pago.cliente_id]);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const detalle = db.query(
+    `SELECT m.monto, c.numero FROM motos_cuota_movimientos m
+     JOIN motos_cuotas c ON c.id = m.cuota_id
+     WHERE m.pago_id=? ORDER BY c.numero ASC`,
+    [pago.id]
+  );
+
+  const forzarDescarga = req.query.dl === '1' || req.query.dl === 'true';
+  const doc = new PDFDocument({ size: 'A5', margin: 0 });
+  const W = doc.page.width, H = doc.page.height;
+  const chunks = [];
+  doc.on('data', c => chunks.push(c));
+  doc.on('end', () => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${forzarDescarga ? 'attachment' : 'inline'}; filename="recibo-${pago.numero_recibo}.pdf"`);
+    res.send(Buffer.concat(chunks));
+  });
+
+  doc.rect(0, 0, W, 70).fill(ROJO);
+  if (fs.existsSync(LOGO)) doc.image(LOGO, 18, 8, { height: 52 });
+  doc.fontSize(9).fillColor('white').fillOpacity(0.7).font('Helvetica')
+     .text('RECIBO', 0, 16, { align: 'right', width: W - 18 });
+  doc.fillOpacity(1);
+  doc.fontSize(20).fillColor('white').font('Helvetica-Bold')
+     .text(`N° ${pago.numero_recibo}`, 0, 28, { align: 'right', width: W - 18 });
+
+  let posY = 85;
+  doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text('FECHA', 28, posY);
+  doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text('CLIENTE', W/2, posY);
+  doc.fontSize(10).fillColor(NEGRO).font('Helvetica').text(fmtF(pago.fecha), 28, posY + 12);
+  doc.fontSize(10).fillColor(NEGRO).font('Helvetica-Bold').text(cliente.nombre, W/2, posY + 12, { width: W/2 - 28 });
+  if (cliente.dni) doc.fontSize(8).fillColor(GRIS).font('Helvetica').text(`DNI: ${cliente.dni}`, W/2, posY + 26, { width: W/2 - 28 });
+  posY += 46;
+
+  if (cliente.moto_descripcion) {
+    doc.moveTo(28, posY).lineTo(W - 28, posY).strokeColor(LINEA).lineWidth(0.5).stroke();
+    posY += 10;
+    doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text('VEHÍCULO / MOTO', 28, posY);
+    doc.fontSize(10).fillColor(NEGRO).font('Helvetica').text(cliente.moto_descripcion, 28, posY + 12, { width: W - 56 });
+    posY += 30;
+  }
+  doc.moveTo(28, posY).lineTo(W - 28, posY).strokeColor(LINEA).lineWidth(0.5).stroke();
+  posY += 12;
+
+  doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text('ABONA LA SUMA DE', 28, posY);
+  doc.rect(28, posY + 12, W - 56, 44).fill('#fff5f5').stroke(ROJO);
+  doc.fontSize(24).fillColor(ROJO).font('Helvetica-Bold')
+     .text(fmtM(pago.monto), 28, posY + 20, { align: 'center', width: W - 56 });
+  posY += 70;
+
+  doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text('MEDIO DE PAGO', 28, posY);
+  doc.fontSize(10).fillColor(NEGRO).font('Helvetica').text(pago.medio_pago || '—', 28, posY + 12, { width: W - 56 });
+  posY += 34;
+
+  doc.moveTo(28, posY).lineTo(W - 28, posY).strokeColor(LINEA).lineWidth(0.5).stroke();
+  posY += 10;
+  doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text('APLICADO A', 28, posY);
+  posY += 14;
+  detalle.forEach(d => {
+    doc.fontSize(9).fillColor(GRIS).font('Helvetica').text(`Cuota N°${d.numero}`, 28, posY);
+    doc.fontSize(9).fillColor(VERDE).font('Helvetica-Bold').text(fmtM(d.monto), 0, posY, { align: 'right', width: W - 28 });
+    posY += 15;
+  });
+
+  if (pago.notas) {
+    posY += 4;
+    doc.fontSize(8).fillColor(GRIS2).font('Helvetica').text(`Notas: ${pago.notas}`, 28, posY, { width: W - 56 });
+  }
+
+  const yPie = H - 38;
+  doc.rect(0, yPie, W, 38).fill('#f5f5f5');
+  doc.moveTo(0, yPie).lineTo(W, yPie).strokeColor(LINEA).lineWidth(0.5).stroke();
+  doc.fontSize(7.5).fillColor(GRIS2).font('Helvetica')
+     .text('Yadon Automotores — Catamarca', 0, yPie + 8, { align: 'center' })
+     .text(`Fecha: ${fmtF(pago.fecha)}`, 0, yPie + 20, { align: 'center' });
+  doc.end();
+});
+
+// ── ESTADO DE CUENTA completo (cronograma de cuotas + subtotales) ──
+router.get('/clientes/:id/estado-cuenta', (req, res) => {
+  const cliente = db.get('SELECT * FROM motos_clientes WHERE id=?', [req.params.id]);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const todasLasCuotas = db.listarCuotasMoto(cliente.id);
+
+  // Por defecto solo se incluye lo realmente adeudado (vencidas/parciales),
+  // no las cuotas futuras que todavía no vencieron. Se puede elegir a mano
+  // qué cuotas entran pasando ?cuotas=1,2,3 (ids) desde la pantalla.
+  let cuotas;
+  if (req.query.cuotas) {
+    const ids = String(req.query.cuotas).split(',').map(n => parseInt(n)).filter(Boolean);
+    cuotas = todasLasCuotas.filter(c => ids.includes(c.id));
+  } else {
+    cuotas = todasLasCuotas.filter(c => c.estado === 'vencida' || c.estado === 'parcial');
+  }
+
+  const capitalPendiente = cuotas.reduce((s, c) => s + Math.max(0, c.monto - c.pagado), 0);
+  const moraTotal = cuotas.reduce((s, c) => s + (c.mora || 0), 0);
+  const resumen = {
+    capital_pendiente: capitalPendiente,
+    mora_total: moraTotal,
+    total_a_pagar: capitalPendiente + moraTotal
+  };
+  const forzarDescarga = req.query.dl === '1' || req.query.dl === 'true';
+
+  const doc = new PDFDocument({ size: 'A4', margin: 0 });
+  const W = doc.page.width, H = doc.page.height;
+  const chunks = [];
+  doc.on('data', c => chunks.push(c));
+  doc.on('end', () => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${forzarDescarga ? 'attachment' : 'inline'}; filename="estado-cuenta-${cliente.nombre.replace(/\s+/g,'-')}.pdf"`);
+    res.send(Buffer.concat(chunks));
+  });
+
+  const M = 40; // margen
+  const badgeColor = { pagada: VERDE, parcial: '#d97706', vencida: ROJO, pendiente: GRIS2 };
+  const badgeLabel = { pagada: 'Pagada', parcial: 'Parcial', vencida: 'Vencida', pendiente: 'Pendiente' };
+
+  function header() {
+    doc.rect(0, 0, W, 80).fill(ROJO);
+    if (fs.existsSync(LOGO)) doc.image(LOGO, M, 12, { height: 56 });
+    doc.fontSize(11).fillColor('white').fillOpacity(0.75).font('Helvetica')
+       .text('ESTADO DE CUENTA', 0, 24, { align: 'right', width: W - M });
+    doc.fontSize(9).fillColor('white').fillOpacity(0.75).font('Helvetica')
+       .text(`Emitido el ${fmtF(new Date().toISOString().split('T')[0])}`, 0, 42, { align: 'right', width: W - M });
+    doc.fillOpacity(1);
+    return 100;
+  }
+
+  let y = header();
+
+  // Datos del cliente
+  doc.fontSize(14).fillColor(NEGRO).font('Helvetica-Bold').text(cliente.nombre, M, y);
+  y += 20;
+  const datos = [
+    cliente.dni ? `DNI: ${cliente.dni}` : null,
+    cliente.telefono ? `Tel: ${cliente.telefono}` : null,
+    cliente.moto_descripcion ? `Vehículo: ${cliente.moto_descripcion}` : null,
+  ].filter(Boolean).join('   ·   ');
+  if (datos) { doc.fontSize(9).fillColor(GRIS).font('Helvetica').text(datos, M, y); y += 16; }
+  doc.fontSize(9).fillColor(GRIS).font('Helvetica')
+     .text(`Cuota fija: ${fmtM(cliente.cuota_fija)}   ·   Mora: ${cliente.mora_porcentaje||6}% por cuota vencida   ·   Cliente desde: ${fmtF(cliente.fecha_inicio)}`, M, y);
+  y += 26;
+
+  doc.moveTo(M, y).lineTo(W-M, y).strokeColor(LINEA).lineWidth(1).stroke();
+  y += 16;
+
+  // Tabla de cuotas
+  const cols = [
+    { key:'numero',  label:'N°',          w:30,  align:'left'  },
+    { key:'venc',    label:'Vencimiento', w:80,  align:'left'  },
+    { key:'monto',   label:'Monto',       w:80,  align:'right' },
+    { key:'pagado',  label:'Pagado',      w:80,  align:'right' },
+    { key:'mora',    label:'Mora',        w:80,  align:'right' },
+    { key:'estado',  label:'Estado',      w:105, align:'right' },
+  ];
+  const tableW = cols.reduce((s,c)=>s+c.w,0);
+
+  function tableHeader() {
+    doc.rect(M, y, tableW, 22).fill('#f5f5f5');
+    let x = M;
+    cols.forEach(c => {
+      doc.fontSize(8).fillColor(GRIS2).font('Helvetica-Bold')
+         .text(c.label, x+6, y+7, { width: c.w-10, align: c.align });
+      x += c.w;
+    });
+    y += 22;
+  }
+  tableHeader();
+
+  cuotas.forEach((cu, i) => {
+    if (y > H - 140) { doc.addPage(); y = 40; tableHeader(); }
+    if (i % 2 === 1) doc.rect(M, y, tableW, 22).fill('#fafafa');
+    let x = M;
+    const vals = {
+      numero: String(cu.numero),
+      venc: fmtF(cu.vencimiento).replace(' de ', '/').replace(' de ', '/'),
+      monto: fmtM(cu.monto),
+      pagado: cu.pagado ? fmtM(cu.pagado) : '—',
+      mora: cu.mora ? fmtM(cu.mora) : '—',
+      estado: badgeLabel[cu.estado] || cu.estado,
+    };
+    cols.forEach(c => {
+      doc.fontSize(9).font('Helvetica')
+         .fillColor(c.key==='estado' ? (badgeColor[cu.estado]||NEGRO) : NEGRO)
+         .text(vals[c.key], x+6, y+6, { width: c.w-10, align: c.align });
+      x += c.w;
+    });
+    y += 22;
+    doc.moveTo(M, y).lineTo(M+tableW, y).strokeColor(LINEA).lineWidth(0.5).stroke();
+  });
+
+  y += 20;
+  if (y > H - 130) { doc.addPage(); y = 40; }
+
+  // Subtotales
+  const boxX = M + tableW - 220, boxW = 220;
+  doc.rect(boxX, y, boxW, 90).fill('#faf7f2').stroke(LINEA);
+  let sy = y + 12;
+  function fila(lbl, val, color, bold) {
+    doc.fontSize(9).fillColor(GRIS).font('Helvetica').text(lbl, boxX+14, sy);
+    doc.fontSize(bold?12:10).fillColor(color||NEGRO).font(bold?'Helvetica-Bold':'Helvetica')
+       .text(val, boxX, sy-2, { align:'right', width: boxW-14 });
+    sy += bold ? 24 : 20;
+  }
+  fila('Capital pendiente', fmtM(resumen.capital_pendiente), ROJO);
+  fila('Mora acumulada', fmtM(resumen.mora_total), '#d97706');
+  doc.moveTo(boxX+14, sy).lineTo(boxX+boxW-14, sy).strokeColor(LINEA).stroke();
+  sy += 8;
+  fila('TOTAL A PAGAR', fmtM(resumen.total_a_pagar), ROJO, true);
+
+  const yPie = H - 40;
+  doc.moveTo(0, yPie).lineTo(W, yPie).strokeColor(LINEA).lineWidth(0.5).stroke();
+  doc.fontSize(8).fillColor(GRIS2).font('Helvetica')
+     .text('Yadon Automotores — Catamarca', 0, yPie + 12, { align: 'center', width: W });
   doc.end();
 });
 

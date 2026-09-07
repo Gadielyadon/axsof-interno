@@ -136,9 +136,12 @@
 
       <!-- CRONOGRAMA DE CUOTAS (solo modalidad='cuotas') -->
       <div id="cronograma-moto-wrap" style="display:none">
-        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
           <span>Cronograma de cuotas</span>
-          <button class="btn-secondary btn-sm" id="btn-cronograma-generar" onclick="generarCronogramaMotoActual()"></button>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn-secondary btn-sm" id="btn-estado-cuenta" style="display:none" onclick="abrirModalEstadoCuenta()">📄 Estado de cuenta</button>
+            <button class="btn-secondary btn-sm" id="btn-cronograma-generar" onclick="generarCronogramaMotoActual()"></button>
+          </div>
         </div>
         <div class="table-wrap" id="cronograma-table-wrap" style="display:none">
           <table class="mov-table">
@@ -394,6 +397,26 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="cerrarModal('modal-mora-cuota')">Cancelar</button>
       <button class="btn-primary" onclick="confirmarMoraCuota()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: elegir qué cuotas incluir en el estado de cuenta -->
+<div class="modal-overlay" id="modal-estado-cuenta" onclick="if(event.target===this)cerrarModal('modal-estado-cuenta')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📄 Generar estado de cuenta</h2>
+      <button class="modal-close" onclick="cerrarModal('modal-estado-cuenta')">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+        Tildadas por defecto: las cuotas vencidas o parciales (lo que realmente debe hoy). Desmarcá o agregá las que quieras que aparezcan en el PDF.
+      </div>
+      <div id="ec-lista" style="display:flex;flex-direction:column;gap:.4rem;max-height:340px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="cerrarModal('modal-estado-cuenta')">Cancelar</button>
+      <a class="btn-primary" id="btn-generar-estado-cuenta" target="_blank" style="text-decoration:none" onclick="cerrarModal('modal-estado-cuenta')">Generar PDF</a>
     </div>
   </div>
 </div>
